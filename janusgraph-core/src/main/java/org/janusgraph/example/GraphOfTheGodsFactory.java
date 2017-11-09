@@ -14,6 +14,7 @@
 
 package org.janusgraph.example;
 
+import com.google.common.base.Preconditions;
 import org.janusgraph.core.EdgeLabel;
 import org.janusgraph.core.Multiplicity;
 import org.janusgraph.core.PropertyKey;
@@ -24,6 +25,7 @@ import org.janusgraph.core.attribute.Geoshape;
 import org.janusgraph.core.schema.ConsistencyModifier;
 import org.janusgraph.core.schema.JanusGraphIndex;
 import org.janusgraph.core.schema.JanusGraphManagement;
+import org.janusgraph.graphdb.database.StandardJanusGraph;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
@@ -40,15 +42,16 @@ import java.io.File;
 public class GraphOfTheGodsFactory {
 
     public static final String INDEX_NAME = "search";
+    private static final String ERR_NO_INDEXING_BACKEND = 
+            "The indexing backend with name \"%s\" is not defined. Specify an existing indexing backend or " +
+            "use GraphOfTheGodsFactory.loadWithoutMixedIndex(graph,true) to load without the use of an " +
+            "indexing backend.";
 
     public static JanusGraph create(final String directory) {
         JanusGraphFactory.Builder config = JanusGraphFactory.build();
         config.set("storage.backend", "berkeleyje");
         config.set("storage.directory", directory);
         config.set("index." + INDEX_NAME + ".backend", "elasticsearch");
-        config.set("index." + INDEX_NAME + ".directory", directory + File.separator + "es");
-        config.set("index." + INDEX_NAME + ".elasticsearch.local-mode", true);
-        config.set("index." + INDEX_NAME + ".elasticsearch.client-only", false);
 
         JanusGraph graph = config.open();
         GraphOfTheGodsFactory.load(graph);
@@ -63,7 +66,15 @@ public class GraphOfTheGodsFactory {
         load(graph, INDEX_NAME, true);
     }
 
+    private static boolean mixedIndexNullOrExists(StandardJanusGraph graph, String indexName) {
+        return indexName == null || graph.getIndexSerializer().containsIndex(indexName) == true;
+    }
+
     public static void load(final JanusGraph graph, String mixedIndexName, boolean uniqueNameCompositeIndex) {
+        if (graph instanceof StandardJanusGraph) {
+            Preconditions.checkState(mixedIndexNullOrExists((StandardJanusGraph)graph, mixedIndexName), 
+                    ERR_NO_INDEXING_BACKEND, mixedIndexName);
+        }
 
         //Create Schema
         JanusGraphManagement mgmt = graph.openManagement();
@@ -91,7 +102,7 @@ public class GraphOfTheGodsFactory {
         mgmt.makeEdgeLabel("pet").make();
         mgmt.makeEdgeLabel("brother").make();
 
-        mgmt.makeVertexLabel("janusgraph").make();
+        mgmt.makeVertexLabel("titan").make();
         mgmt.makeVertexLabel("location").make();
         mgmt.makeVertexLabel("god").make();
         mgmt.makeVertexLabel("demigod").make();
@@ -103,7 +114,7 @@ public class GraphOfTheGodsFactory {
         JanusGraphTransaction tx = graph.newTransaction();
         // vertices
 
-        Vertex saturn = tx.addVertex(T.label, "janusgraph", "name", "saturn", "age", 10000);
+        Vertex saturn = tx.addVertex(T.label, "titan", "name", "saturn", "age", 10000);
         Vertex sky = tx.addVertex(T.label, "location", "name", "sky");
         Vertex sea = tx.addVertex(T.label, "location", "name", "sea");
         Vertex jupiter = tx.addVertex(T.label, "god", "name", "jupiter", "age", 5000);

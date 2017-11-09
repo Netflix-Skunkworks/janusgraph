@@ -35,21 +35,25 @@ public class IndexFeatures {
     private final ImmutableSet<Mapping> supportedStringMappings;
     private final String wildcardField;
     private final boolean supportsNanoseconds;
-    private ImmutableSet<Cardinality> supportedCardinaities;
+    private final boolean supportsCustomAnalyzer;
+    private final boolean supportsGeoContains;
+    private ImmutableSet<Cardinality> supportedCardinalities;
 
-    public IndexFeatures(boolean supportsDocumentTTL,
-                         Mapping defaultMap,
-                         ImmutableSet<Mapping> supportedMap, String wildcardField, ImmutableSet<Cardinality> supportedCardinaities, boolean supportsNanoseconds) {
+    public IndexFeatures(boolean supportsDocumentTTL, Mapping defaultMap, ImmutableSet<Mapping> supportedMap,
+                         String wildcardField, ImmutableSet<Cardinality> supportedCardinaities, boolean supportsNanoseconds,
+                         boolean supportCustomAnalyzer, boolean supportsGeoContains) {
 
-        Preconditions.checkArgument(defaultMap!=null || defaultMap!=Mapping.DEFAULT);
+        Preconditions.checkArgument(defaultMap!=null && defaultMap!=Mapping.DEFAULT);
         Preconditions.checkArgument(supportedMap!=null && !supportedMap.isEmpty()
                                     && supportedMap.contains(defaultMap));
         this.supportsDocumentTTL = supportsDocumentTTL;
         this.defaultStringMapping = defaultMap;
         this.supportedStringMappings = supportedMap;
         this.wildcardField = wildcardField;
-        this.supportedCardinaities = supportedCardinaities;
+        this.supportedCardinalities = supportedCardinaities;
         this.supportsNanoseconds = supportsNanoseconds;
+        this.supportsCustomAnalyzer = supportCustomAnalyzer;
+        this.supportsGeoContains = supportsGeoContains;
     }
 
     public boolean supportsDocumentTTL() {
@@ -69,11 +73,19 @@ public class IndexFeatures {
     }
 
     public boolean supportsCardinality(Cardinality cardinality) {
-        return supportedCardinaities.contains(cardinality);
+        return supportedCardinalities.contains(cardinality);
     }
 
     public boolean supportsNanoseconds() {
         return supportsNanoseconds;
+    }
+    
+    public boolean supportsCustomAnalyzer() {
+        return supportsCustomAnalyzer;
+    }
+
+    public boolean supportsGeoContains() {
+        return supportsGeoContains;
     }
 
     public static class Builder {
@@ -84,6 +96,8 @@ public class IndexFeatures {
         private Set<Cardinality> supportedCardinalities = Sets.newHashSet();
         private String wildcardField = "*";
         private boolean supportsNanoseconds;
+        private boolean supportsCustomAnalyzer;
+        private boolean supportsGeoContains = false;
 
         public Builder supportsDocumentTTL() {
             supportsDocumentTTL=true;
@@ -114,10 +128,21 @@ public class IndexFeatures {
             supportsNanoseconds = true;
             return this;
         }
+        
+        public Builder supportsCustomAnalyzer() {
+            supportsCustomAnalyzer = true;
+            return this;
+        }
+
+        public Builder supportsGeoContains() {
+            this.supportsGeoContains = true;
+            return this;
+        }
 
         public IndexFeatures build() {
-            return new IndexFeatures(supportsDocumentTTL, defaultStringMapping,
-                    ImmutableSet.copyOf(supportedMappings), wildcardField,  ImmutableSet.copyOf(supportedCardinalities), supportsNanoseconds);
+            return new IndexFeatures(supportsDocumentTTL, defaultStringMapping, ImmutableSet.copyOf(supportedMappings),
+                wildcardField,  ImmutableSet.copyOf(supportedCardinalities), supportsNanoseconds, supportsCustomAnalyzer,
+                supportsGeoContains);
         }
 
 

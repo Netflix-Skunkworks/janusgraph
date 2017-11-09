@@ -15,7 +15,6 @@
 package org.janusgraph.graphdb.transaction;
 
 import com.carrotsearch.hppc.LongArrayList;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.cache.Cache;
@@ -69,6 +68,7 @@ import org.janusgraph.graphdb.types.vertices.EdgeLabelVertex;
 import org.janusgraph.graphdb.types.vertices.PropertyKeyVertex;
 import org.janusgraph.graphdb.types.vertices.JanusGraphSchemaVertex;
 import org.janusgraph.graphdb.util.IndexHelper;
+import org.janusgraph.graphdb.util.SubqueryIterator;
 import org.janusgraph.graphdb.util.VertexCentricEdgeIterable;
 import org.janusgraph.graphdb.vertices.CacheVertex;
 import org.janusgraph.graphdb.vertices.PreloadedVertex;
@@ -89,6 +89,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
@@ -181,7 +183,7 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
     /**
      * Whether or not this transaction is open
      */
-    private boolean isOpen;
+    private volatile boolean isOpen;
 
     private final VertexConstructor existingVertexRetriever;
     private final VertexConstructor externalVertexRetriever;
@@ -275,7 +277,7 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
 
     private void verifyWriteAccess(JanusGraphVertex... vertices) {
         if (config.isReadOnly())
-            throw new UnsupportedOperationException("Cannot create new entities in read-only transaction");
+            throw new ReadOnlyTransactionException("Cannot create new entities in read-only transaction");
         for (JanusGraphVertex v : vertices) {
             if (v.hasId() && idInspector.isUnmodifiableVertex(v.longId()) && !v.isNew())
                 throw new SchemaViolationException("Cannot modify unmodifiable vertex: "+v);
@@ -928,6 +930,17 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
     }
 
     @Override
+    public PropertyKey getOrCreatePropertyKey(String name, Object value) {
+        RelationType et = getRelationType(name);
+        if (et == null) {
+            return config.getAutoSchemaMaker().makePropertyKey(makePropertyKey(name), value);
+        } else if (et.isPropertyKey()) {
+            return (PropertyKey) et;
+        } else
+            throw new IllegalArgumentException("The type of given name is not a key: " + name);
+    }
+
+    @Override
     public PropertyKey getOrCreatePropertyKey(String name) {
         RelationType et = getRelationType(name);
         if (et == null) {
@@ -1068,7 +1081,7 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
                     private JanusGraphRelation previous = null;
 
                     @Override
-                    public boolean apply(@Nullable InternalRelation relation) {
+                    public boolean apply(final InternalRelation relation) {
                         if ((relation instanceof JanusGraphEdge) && relation.isLoop()
                                 && query.getDirection() != Direction.BOTH) {
                             if (relation.equals(previous))
@@ -1165,7 +1178,7 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
                     final Set<PropertyKey> keys = Sets.newHashSet();
                     ConditionUtil.traversal(query.getCondition(), new Predicate<Condition<JanusGraphElement>>() {
                         @Override
-                        public boolean apply(@Nullable Condition<JanusGraphElement> cond) {
+                        public boolean apply(final Condition<JanusGraphElement> cond) {
                             Preconditions.checkArgument(cond.getType() != Condition.Type.LITERAL || cond instanceof PredicateCondition);
                             if (cond instanceof PredicateCondition)
                                 keys.add(((PredicateCondition<PropertyKey, JanusGraphElement>) cond).getKey());
@@ -1176,7 +1189,7 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
                     Set<JanusGraphVertex> vertexSet = Sets.newHashSet();
                     for (JanusGraphRelation r : addedRelations.getView(new Predicate<InternalRelation>() {
                         @Override
-                        public boolean apply(@Nullable InternalRelation relation) {
+                        public boolean apply(final InternalRelation relation) {
                             return keys.contains(relation.getType());
                         }
                     })) {
@@ -1190,10 +1203,10 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
                     }
                     vertices = vertexSet.iterator();
                 } else {
-                    vertices = com.google.common.collect.Iterators.transform(newVertexIndexEntries.get(standardIndexKey.getValue(), standardIndexKey.getKey()).iterator(), new Function<JanusGraphVertexProperty, JanusGraphVertex>() {
+                    vertices = com.google.common.collect.Iterators.transform(newVertexIndexEntries.get(standardIndexKey.getValue(), standardIndexKey.getKey()).iterator(), new com.google.common.base.Function<JanusGraphVertexProperty, JanusGraphVertex>() {
                         @Nullable
                         @Override
-                        public JanusGraphVertex apply(@Nullable JanusGraphVertexProperty o) {
+                        public JanusGraphVertex apply(final JanusGraphVertexProperty o) {
                             return o.element();
                         }
                     });
@@ -1209,7 +1222,7 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
                                         && !addedRelations.isEmpty()) {
                 return (Iterator) addedRelations.getView(new Predicate<InternalRelation>() {
                     @Override
-                    public boolean apply(@Nullable InternalRelation relation) {
+                    public boolean apply(final InternalRelation relation) {
                         return query.getResultType().isInstance(relation) && !relation.isInvisible() && query.matches(relation);
                     }
                 }).iterator();
@@ -1245,7 +1258,7 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
             Iterator<JanusGraphElement> iter;
             if (!indexQuery.isEmpty()) {
                 List<QueryUtil.IndexCall<Object>> retrievals = new ArrayList<QueryUtil.IndexCall<Object>>();
-                for (int i = 0; i < indexQuery.size(); i++) {
+                for (int i = 1; i < indexQuery.size(); i++) {
                     final JointIndexQuery.Subquery subquery = indexQuery.getQuery(i);
                     retrievals.add(new QueryUtil.IndexCall<Object>() {
                         @Override
@@ -1255,7 +1268,7 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
                                 return indexCache.get(adjustedQuery, new Callable<List<Object>>() {
                                     @Override
                                     public List<Object> call() throws Exception {
-                                        return QueryProfiler.profile(subquery.getProfiler(), adjustedQuery, q -> indexSerializer.query(q, txHandle));
+                                        return QueryProfiler.profile(subquery.getProfiler(), adjustedQuery, q -> indexSerializer.query(q, txHandle).collect(Collectors.toList()));
                                     }
                                 });
                             } catch (Exception e) {
@@ -1264,10 +1277,8 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
                         }
                     });
                 }
-
-
-                List<Object> resultSet = QueryUtil.processIntersectingRetrievals(retrievals, indexQuery.getLimit());
-                iter = com.google.common.collect.Iterators.transform(resultSet.iterator(), getConversionFunction(query.getResultType()));
+                iter = new SubqueryIterator(indexQuery.getQuery(0), indexSerializer, txHandle, indexCache, indexQuery.getLimit(), getConversionFunction(query.getResultType()),
+                        retrievals.isEmpty() ? null: QueryUtil.processIntersectingRetrievals(retrievals, indexQuery.getLimit()));
             } else {
                 if (config.hasForceIndexUsage()) throw new JanusGraphException("Could not find a suitable index to answer graph query and graph scans are disabled: " + query);
                 log.warn("Query requires iterating over all vertices [{}]. For better performance, use indexes", query.getCondition());
@@ -1312,7 +1323,7 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
 
     private final Function<Object, JanusGraphVertex> vertexIDConversionFct = new Function<Object, JanusGraphVertex>() {
         @Override
-        public JanusGraphVertex apply(@Nullable Object id) {
+        public JanusGraphVertex apply(final Object id) {
             Preconditions.checkNotNull(id);
             Preconditions.checkArgument(id instanceof Long);
             return getInternalVertex((Long) id);
@@ -1321,7 +1332,7 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
 
     private final Function<Object, JanusGraphEdge> edgeIDConversionFct = new Function<Object, JanusGraphEdge>() {
         @Override
-        public JanusGraphEdge apply(@Nullable Object id) {
+        public JanusGraphEdge apply(final Object id) {
             Preconditions.checkNotNull(id);
             Preconditions.checkArgument(id instanceof RelationIdentifier);
             return ((RelationIdentifier)id).findEdge(StandardJanusGraphTx.this);
@@ -1330,7 +1341,7 @@ public class StandardJanusGraphTx extends JanusGraphBlueprintsTransaction implem
 
     private final Function<Object, JanusGraphVertexProperty> propertyIDConversionFct = new Function<Object, JanusGraphVertexProperty>() {
         @Override
-        public JanusGraphVertexProperty apply(@Nullable Object id) {
+        public JanusGraphVertexProperty apply(final Object id) {
             Preconditions.checkNotNull(id);
             Preconditions.checkArgument(id instanceof RelationIdentifier);
             return ((RelationIdentifier)id).findProperty(StandardJanusGraphTx.this);

@@ -47,6 +47,7 @@ Dan LaRocque <dalaro@hopcount.org>
 Daniel Kuppitz <daniel_kuppitz@hotmail.com>
 Danny Thomas <dmthomas@gmail.com>
 Dave Brosius <dbrosius@mebigfatguy.com>
+David Pitera <dpitera@.us.ibm.com>
 David Robinson <drobin1437@gmail.com>
 deiflaender <?>
 Dylan Bethune-Waddell <dylan.bethune.waddell@mail.utoronto.ca>
@@ -61,6 +62,7 @@ Joe Ferner <joe@fernsroth.com>
 Joshua Shinavier <josh@fortytwo.net>
 Justin Corpron <justin.corpron@justinc-677.glassdoor.local>
 Karthik Ramachandran <kramachandran@iqt.com>
+Kedar Mhaswade <kedar.mhaswade@gmail.com>
 ksenji <ksenji@ebay.com>
 Leifur Halldor Asgeirsson <leifurhauks@gmail.com>
 Mark McCraw <mark.mccraw@sas.com>
@@ -73,13 +75,17 @@ Mike McMahon <mmcm@comcast.net>
 Misha Brukman <mbrukman@google.com>
 MrKeyholder <fractalf@gmail.com>
 Nik Everett <neverett@wikimedia.org>
+Paul Kendall <paul.kendall@orionhealth.com> <pkendall64@gmail.com>
 Pavel Yaskevich <pyaskevich@twitter.com> <xedin@apache.org>
 Peter Beaman <pbeaman@akiban.com>
 Petter Aas <aaspet@gmail.com> <petter.aas@fronter.com>
 Pieter <pieter@pieter-HP-EliteBook-8570w.(none)>
 PommeVerte <dylan.millikin@gmail.com>
+Rafael Fernandes <luizrafael@gmail.com>
 Ranger Tsao <cao.zhifu@gmail.com>
 Richard Doll <rdoll@care-view.com>
+Robert Dale <robdale@gmail.com>
+Samant Maharaj <samant.maharaj@orionhealth.com>
 Sebastian Good <sebastian@experoinc.com>
 Solon Gordon <solon@knewton.com>
 Stephen Mallette <spmallette@gmail.com> <spmva@genoprime.com>

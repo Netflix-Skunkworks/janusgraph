@@ -7,7 +7,7 @@
     </parent>
     <groupId>org.janusgraph</groupId>
     <artifactId>janusgraph</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.3.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <prerequisites>
         <maven>2.2.1</maven>
@@ -63,11 +63,12 @@
         <tag>HEAD</tag>
     </scm>
     <properties>
-        <janusgraph.compatible.versions />
-        <tinkerpop.version>3.2.3</tinkerpop.version>
+        <janusgraph.compatible.versions>0.1.0,0.1.1,0.2.0</janusgraph.compatible.versions>
+        <titan.compatible-versions>1.0.0,1.1.0-SNAPSHOT</titan.compatible-versions>
+        <tinkerpop.version>3.2.6</tinkerpop.version>
         <junit.version>4.12</junit.version>
         <mrunit.version>1.1.0</mrunit.version>
-        <cassandra.version>2.1.9</cassandra.version>
+        <cassandra.version>2.1.18</cassandra.version>
         <jamm.version>0.3.0</jamm.version>
         <metrics2.version>2.1.2</metrics2.version>
         <metrics3.version>3.0.1</metrics3.version>
@@ -75,21 +76,20 @@
         <slf4j.version>1.7.12</slf4j.version>
         <httpcomponents.version>4.4.1</httpcomponents.version>
         <hadoop2.version>2.7.2</hadoop2.version>
-        <hbase098.core.version>0.98.2</hbase098.core.version>
+        <hbase098.core.version>0.98.24</hbase098.core.version>
         <hbase098.version>${hbase098.core.version}-hadoop2</hbase098.version>
-        <hbase100.core.version>1.2.4</hbase100.core.version>
+        <hbase100.core.version>1.2.6</hbase100.core.version>
         <hbase100.version>${hbase100.core.version}</hbase100.version>
-        <jackson1.version>1.9.2</jackson1.version>
-        <jackson2.version>2.4.4</jackson2.version>
-        <!-- ES depends on Lucene.  This ES dependency can affect the
-             version used by the janusgraph-lucene module.  When updating
-             the ES version, also consider the version of Lucene, and
-             vice-versa. -->
-        <lucene.version>4.10.4</lucene.version>
-        <elasticsearch.version>1.5.1</elasticsearch.version>
+        <bigtable.version>1.0.0-pre3</bigtable.version>
+        <scylladb.version>1.7.1</scylladb.version>
+        <!-- align with org.apache.hbase:hbase -->
+        <jackson1.version>1.9.13</jackson1.version>
+        <jackson2.version>2.6.6</jackson2.version>
+        <lucene-solr.version>7.0.0</lucene-solr.version>
+        <elasticsearch.version>5.6.2</elasticsearch.version>
         <commons.beanutils.version>1.7.0</commons.beanutils.version>
         <commons.collections.version>3.2.2</commons.collections.version>
-        <joda.version>1.6.2</joda.version>
+        <joda.version>2.8.2</joda.version>
         <concurrentlinkedhashmap.version>1.3</concurrentlinkedhashmap.version>
         <antlr2.version>2.7.7</antlr2.version>
         <antlr.version>3.2</antlr.version>
@@ -97,6 +97,8 @@
         <asm4.version>4.0</asm4.version>
         <zookeeper.version>3.4.6</zookeeper.version>
         <jersey.version>1.9</jersey.version>
+        <!-- align with org.apache.tinkerpop:tinkerpop -->
+        <netty4.version>4.0.50.Final</netty4.version>
         <jna.version>4.0.0</jna.version>
         <kuali.s3.wagon.version>1.1.20</kuali.s3.wagon.version>
         <jasper.version>5.5.23</jasper.version>
@@ -105,6 +107,7 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <janusgraph.testdir>${project.build.directory}/janusgraph-test</janusgraph.testdir>
         <gpg.skip>false</gpg.skip>
+        <maven.gpg.version>1.4</maven.gpg.version>
         <perf.jvm.opts />
         <default.test.jvm.opts>-Xms256m -Xmx768m -XX:+HeapDumpOnOutOfMemoryError -ea ${test.extra.jvm.opts}</default.test.jvm.opts>
         <mem.jvm.opts>-Xms256m -Xmx256m -ea -XX:+HeapDumpOnOutOfMemoryError ${test.extra.jvm.opts}</mem.jvm.opts>
@@ -112,24 +115,30 @@
         <test.skip.default>false</test.skip.default>
         <test.skip.tp>true</test.skip.tp>
         <top.level.basedir>${basedir}</top.level.basedir>
+        <maven.javadoc.version>2.10.4</maven.javadoc.version>
         <compiler.source>1.8</compiler.source>
         <compiler.target>1.8</compiler.target>
         <test.excluded.groups>org.janusgraph.testcategory.MemoryTests,org.janusgraph.testcategory.PerformanceTests,org.janusgraph.testcategory.BrittleTests</test.excluded.groups>
         <dependency.locations.enabled>false</dependency.locations.enabled>
+        <cassandra-driver.version>3.1.4</cassandra-driver.version>
     </properties>
     <modules>
+        <module>janusgraph-codepipelines-ci</module>
         <module>janusgraph-core</module>
         <module>janusgraph-test</module>
         <module>janusgraph-berkeleyje</module>
+        <module>janusgraph-cql</module>
         <module>janusgraph-cassandra</module>
         <module>janusgraph-hadoop-parent</module>
         <module>janusgraph-hbase-parent</module>
+        <module>janusgraph-bigtable</module>
         <module>janusgraph-es</module>
         <module>janusgraph-lucene</module>
         <module>janusgraph-all</module>
         <module>janusgraph-dist</module>
         <module>janusgraph-doc</module>
         <module>janusgraph-solr</module>
+        <module>janusgraph-examples</module>
     </modules>
     <repositories>
         <repository>
@@ -144,15 +153,6 @@
             </snapshots>
         </repository>
         <!-- the repositories below are included here for `mvn project-info-reports:dependencies` -->
-        <repository>
-            <!-- for com.github.jeremyh:jBCrypt:jar -->
-            <id>jitpack.io</id>
-            <name>JitPack Package Repository</name>
-            <url>https://jitpack.io</url>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
-        </repository>
         <repository>
             <!-- for com.sleepycat:je:jar -->
             <id>oracleReleases</id>
@@ -307,16 +307,14 @@
                                     <include>**/*StructureTest.java</include>
                                 </includes>
                                 <runOrder>alphabetical</runOrder>
-                                <!-- <excludes>
-                                    <exclude>**/*</exclude>
-                                </excludes> -->
                                 <skipTests>${test.skip.tp}</skipTests>
                                 <systemPropertyVariables>
                                   <build.dir>${project.build.directory}</build.dir>
                                   <log4j.configuration>file:${project.build.directory}/test-classes/log4j.properties</log4j.configuration>
+                                  <is.testing>true</is.testing>
                                 </systemPropertyVariables>
                             </configuration>
-                       </execution>
+                        </execution>
                     </executions>
                 </plugin>
                 <plugin>
@@ -375,7 +373,7 @@
                 </plugin>
                 <plugin>
                     <artifactId>maven-javadoc-plugin</artifactId>
-                    <version>2.9.1</version>
+                    <version>${maven.javadoc.version}</version>
                 </plugin>
                 <plugin>
                     <artifactId>maven-assembly-plugin</artifactId>
@@ -399,7 +397,7 @@
                 </plugin>
                 <plugin>
                     <artifactId>maven-gpg-plugin</artifactId>
-                    <version>1.4</version>
+                    <version>${maven.gpg.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
@@ -475,7 +473,7 @@
                 <plugin>
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
-                    <version>0.6.3.201306030806</version>
+                    <version>0.7.9</version>
                 </plugin>
             </plugins>
         </pluginManagement>
@@ -501,6 +499,11 @@
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-annotations</artifactId>
+                <version>${jackson2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.module</groupId>
+                <artifactId>jackson-module-scala_2.10</artifactId>
                 <version>${jackson2.version}</version>
             </dependency>
             <dependency>
@@ -671,6 +674,7 @@
                 <version>${jasper.version}</version>
             </dependency>
             <dependency>
+                <!-- align with org.apache.hbase:hbase -->
                 <groupId>org.mortbay.jetty</groupId>
                 <artifactId>jetty</artifactId>
                 <version>6.1.26</version>
@@ -732,7 +736,12 @@
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-all</artifactId>
-                <version>4.0.28.Final</version>
+                <version>${netty4.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-handler</artifactId>
+                <version>${netty4.version}</version>
             </dependency>
 
             <dependency>
@@ -815,11 +824,6 @@
                 <artifactId>hamcrest-core</artifactId>
                 <version>1.3</version>
             </dependency>
-            <dependency>
-                <groupId>jline</groupId>
-                <artifactId>jline</artifactId>
-                <version>2.11</version>
-            </dependency>
             <!-- Force newer Snappy-java because 1.4.0.1 is broken on Mac OS X with JDK 7 -->
             <dependency>
                 <groupId>org.xerial.snappy</groupId>
@@ -852,7 +856,7 @@
             <dependency>
                 <groupId>commons-cli</groupId>
                 <artifactId>commons-cli</artifactId>
-                <version>1.2</version>
+                <version>1.3.1</version>
             </dependency>
             <dependency>
                 <groupId>org.jboss.netty</groupId>
@@ -862,14 +866,21 @@
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty</artifactId>
-                <version>3.6.6.Final</version>
+                <version>3.10.5.Final</version>
             </dependency>
 
             <!-- Spatial4j -->
             <dependency>
-                <groupId>com.spatial4j</groupId>
+                <groupId>org.locationtech.spatial4j</groupId>
                 <artifactId>spatial4j</artifactId>
-                <version>0.4.1</version>
+                <version>0.6</version>
+            </dependency>
+
+            <!-- Java Topology Suite (JTS) -->
+            <dependency>
+                <groupId>com.vividsolutions</groupId>
+                <artifactId>jts</artifactId>
+                <version>1.13</version>
             </dependency>
 
             <!-- Package prefix is org.apache.commons.httpclient -->
@@ -940,7 +951,7 @@
             <dependency>
                 <groupId>org.jacoco</groupId>
                 <artifactId>org.jacoco.ant</artifactId>
-                <version>0.6.2.201302030002</version>
+                <version>0.7.9</version>
             </dependency>
             <dependency>
                 <groupId>com.yammer.metrics</groupId>
@@ -978,9 +989,10 @@
                 <version>6.5.7</version>
             </dependency>
             <dependency>
+                <!-- align with org.apache.cassandra:cassandra-all -->
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>libthrift</artifactId>
-                <version>0.9.0</version>
+                <version>0.9.2</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.cassandra</groupId>
@@ -1093,7 +1105,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-javadoc-plugin</artifactId>
-                        <version>2.7</version>
+                        <version>${maven.javadoc.version}</version>
                         <executions>
                             <execution>
                                 <id>attach-javadocs</id>
@@ -1103,7 +1115,7 @@
                     </plugin>
                     <plugin>
                         <artifactId>maven-gpg-plugin</artifactId>
-                        <version>1.1</version>
+                        <version>${maven.gpg.version}</version>
                         <executions>
                             <execution>
                                 <id>sign-artifacts</id>
@@ -1181,7 +1193,7 @@
         <profile>
             <id>sonar-upload</id>
             <properties>
-                <sonar.jacoco.reportPath>../target/jacoco-combined.exec</sonar.jacoco.reportPath>
+                <sonar.jacoco.reportPath>${top.level.basedir}/target/jacoco-combined.exec</sonar.jacoco.reportPath>
                 <sonar.dynamicAnalysis>reuseReports</sonar.dynamicAnalysis>
             </properties>
         </profile>
@@ -1283,19 +1295,11 @@
 	
         <profile>
             <id>coverage</id>
+            <properties>
+                <test.extra.jvm.opts>${jacoco.opts}</test.extra.jvm.opts>
+            </properties>
             <build>
                 <plugins>
-                    <plugin>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>default-test</id>
-                                <configuration>
-                                    <argLine>${default.test.jvm.opts} ${jacoco.opts}</argLine>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
                     <plugin>
                         <artifactId>maven-resources-plugin</artifactId>
                         <executions>
@@ -1377,7 +1381,7 @@
                                     <goal>prepare-agent</goal>
                                 </goals>
                                 <configuration>
-                                    <destFile>../target/jacoco-combined.exec</destFile>
+                                    <destFile>${top.level.basedir}/target/jacoco-combined.exec</destFile>
                                     <append>true</append>
                                     <propertyName>jacoco.opts</propertyName>
                                 </configuration>
@@ -1403,18 +1407,18 @@
                                         <taskdef name="report" classname="org.jacoco.ant.ReportTask" classpathref="maven.plugin.classpath" />
                                         <report>
                                             <executiondata>
-                                                <file file="../target/jacoco-combined.exec" />
+                                                <file file="${top.level.basedir}/target/jacoco-combined.exec" />
                                             </executiondata>
                                             <structure name="Integration test coverage">
                                                 <classfiles>
                                                     <fileset dir="${project.build.directory}/jacoco-classes" />
-                                                    u
                                                 </classfiles>
                                                 <sourcefiles encoding="UTF-8">
                                                     <fileset dir="${project.build.directory}/jacoco-sources" />
                                                 </sourcefiles>
                                             </structure>
                                             <html destdir="${project.build.directory}/jacoco-report" />
+                                            <xml destfile="${project.build.directory}/jacoco-report/report.xml" />
                                         </report>
                                     </target>
                                 </configuration>
@@ -1424,7 +1428,7 @@
                             <dependency>
                                 <groupId>org.jacoco</groupId>
                                 <artifactId>org.jacoco.ant</artifactId>
-                                <version>0.6.2.201302030002</version>
+                                <version>0.7.9</version>
                             </dependency>
                         </dependencies>
                     </plugin>
@@ -1501,54 +1505,6 @@
                                 </configuration>
                             </execution>
                         </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-
-        <profile>
-            <id>target-jre6</id>
-            <activation>
-                <activeByDefault>false</activeByDefault>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.codehaus.mojo</groupId>
-                        <artifactId>xml-maven-plugin</artifactId>
-                        <configuration>
-                            <forceCreation>true</forceCreation>
-                            <transformationSets>
-                                <transformationSet>
-                                    <dir>${basedir}</dir>
-                                    <includes>
-                                        <include>pom.xml</include>
-                                    </includes>
-                                    <stylesheet>${top.level.basedir}/jre6.xslt</stylesheet>
-                                </transformationSet>
-                            </transformationSets>
-                        </configuration>
-                        <dependencies>
-                            <dependency>
-                                <groupId>net.sourceforge.saxon</groupId>
-                                <artifactId>saxon</artifactId>
-                                <version>9.1.0.8</version>
-                            </dependency>
-                        </dependencies>
-                    </plugin>
-                    <plugin>
-                        <artifactId>maven-resources-plugin</artifactId>
-                        <configuration>
-                            <outputDirectory>${basedir}</outputDirectory>
-                            <resources>
-                                <resource>
-                                    <directory>${basedir}/target/generated-resources/xml/xslt/</directory>
-                                    <includes>
-                                        <include>pom.xml</include>
-                                    </includes>
-                                </resource>
-                            </resources>
-                        </configuration>
                     </plugin>
                 </plugins>
             </build>

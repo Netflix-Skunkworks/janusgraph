@@ -3,7 +3,7 @@
     <parent>
         <groupId>org.janusgraph</groupId>
         <artifactId>janusgraph-dist</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.3.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <packaging>pom</packaging>
@@ -17,18 +17,18 @@
         <assembly.static.dir>${project.parent.basedir}/src/assembly/static</assembly.static.dir>
         <assembly.resources.dir>${project.parent.basedir}/src/assembly/resources</assembly.resources.dir>
         <assembly.cfilter.out.dir>${project.parent.build.directory}/cfilter</assembly.cfilter.out.dir>
-        <top.level.basedir>${project.parent.parent.basedir}</top.level.basedir>
+        <top.level.basedir>${basedir}/../..</top.level.basedir>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>org.apache.hbase</groupId>
-            <artifactId>hbase-client</artifactId>
+            <artifactId>hbase-shaded-client</artifactId>
             <version>${hbase100.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.hbase</groupId>
-            <artifactId>hbase-server</artifactId>
+            <artifactId>hbase-shaded-server</artifactId>
             <!-- Need the -server artifact for hbase.mapreduce.TableInputFormat (Faunus) -->
             <version>${hbase100.version}</version>
             <exclusions>
@@ -121,7 +121,14 @@
                             </execution>
                         </executions>
                     </plugin>
+                </plugins>
+            </build>
+        </profile>
 
+        <profile>
+            <id>compat-test-files</id>
+            <build>
+                <plugins>
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>exec-maven-plugin</artifactId>
@@ -136,8 +143,8 @@
                                     <executable>java</executable>
                                     <arguments>
                                         <argument>-classpath</argument>
-                                        <classpath />
-                                        <argument>org.janusgraph.example.GraphOfTheGodsFactory</argument>
+                                        <argument>${project.build.directory}/dependency/janusgraph-es-${project.version}-tests.jar:${project.build.directory}/dependency/*</argument>
+                                        <argument>org.janusgraph.diskstorage.es.ElasticsearchRunner</argument>
                                         <argument>${project.build.directory}/conf/janusgraph-berkeleyje-es.properties</argument>
                                     </arguments>
                                 </configuration>
@@ -164,39 +171,5 @@
             </build>
         </profile>
 
-        <profile>
-            <id>dev-install-hadoop2</id>
-
-            <!-- Enable Hadoop 2 by default -->
-            <activation>
-                <property>
-                    <name>!dev.hadoop</name>
-                </property>
-            </activation>
-
-            <build>
-                <plugins>
-                    <plugin>
-                        <artifactId>maven-clean-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>clean-dev-dirs-hadoop</id>
-                                <phase>clean</phase>
-                            </execution>
-                        </executions>
-                    </plugin>
-
-                    <plugin>
-                        <artifactId>maven-assembly-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>install-dev-dirs-hadoop</id>
-                                <phase>install</phase>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
     </profiles>
 </project>

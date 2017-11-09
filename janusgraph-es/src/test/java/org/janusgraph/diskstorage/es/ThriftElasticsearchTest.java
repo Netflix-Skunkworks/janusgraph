@@ -14,21 +14,31 @@
 
 package org.janusgraph.diskstorage.es;
 
-
 import org.janusgraph.CassandraStorageSetup;
-import org.janusgraph.StorageSetup;
 import org.janusgraph.diskstorage.configuration.ModifiableConfiguration;
 import org.janusgraph.diskstorage.configuration.WriteConfiguration;
 import org.janusgraph.graphdb.JanusGraphIndexTest;
+import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
+import org.junit.AfterClass;
 import org.junit.BeforeClass;
 
-import static org.janusgraph.CassandraStorageSetup.*;
-import static org.janusgraph.diskstorage.es.ElasticSearchIndex.CLIENT_ONLY;
-import static org.janusgraph.diskstorage.es.ElasticSearchIndex.LOCAL_MODE;
-import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_BACKEND;
-import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_DIRECTORY;
+import static org.janusgraph.CassandraStorageSetup.getCassandraThriftConfiguration;
 
 public class ThriftElasticsearchTest extends JanusGraphIndexTest {
+
+    private static ElasticsearchRunner esr;
+
+    @BeforeClass
+    public static void startElasticsearch() {
+        CassandraStorageSetup.startCleanEmbedded();
+        esr = new ElasticsearchRunner();
+        esr.start();
+    }
+
+    @AfterClass
+    public static void stopElasticsearch() {
+        esr.stop();
+    }
 
     public ThriftElasticsearchTest() {
         super(true, true, true);
@@ -36,14 +46,10 @@ public class ThriftElasticsearchTest extends JanusGraphIndexTest {
 
     @Override
     public WriteConfiguration getConfiguration() {
-        ModifiableConfiguration config =
-                getCassandraThriftConfiguration(ThriftElasticsearchTest.class.getName());
-        //Add index
-        config.set(INDEX_BACKEND,"elasticsearch",INDEX);
-        config.set(LOCAL_MODE,true,INDEX);
-        config.set(CLIENT_ONLY,false,INDEX);
-        config.set(INDEX_DIRECTORY, StorageSetup.getHomeDir("es"),INDEX);
-        return config.getConfiguration();
+        ModifiableConfiguration config = getCassandraThriftConfiguration(ThriftElasticsearchTest.class.getName());
+        return esr.setElasticsearchConfiguration(config, INDEX)
+            .set(GraphDatabaseConfiguration.INDEX_MAX_RESULT_SET_SIZE, 3, INDEX)
+            .getConfiguration();
     }
 
     @Override
@@ -60,8 +66,4 @@ public class ThriftElasticsearchTest extends JanusGraphIndexTest {
         return true;
     }
 
-    @BeforeClass
-    public static void beforeClass() {
-        CassandraStorageSetup.startCleanEmbedded();
-    }
 }

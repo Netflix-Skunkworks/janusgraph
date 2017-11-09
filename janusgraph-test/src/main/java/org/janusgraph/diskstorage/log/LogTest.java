@@ -85,22 +85,22 @@ public abstract class LogTest {
 
     @Test
     public void smallSendReceiveSerial() throws Exception {
-        simpleSendReceive(100, 50);
+        simpleSendReceive(100, 50, TIMEOUT_MS);
     }
 
     @Test
     public void mediumSendReceiveSerial() throws Exception {
-        simpleSendReceive(2000,1);
+        simpleSendReceive(2000,1, TIMEOUT_MS);
     }
 
     @Test
     public void testMultipleReadersOnSingleLogSerial() throws Exception {
-        sendReceive(4, 2000, 5, true);
+        sendReceive(4, 2000, 5, true, TIMEOUT_MS);
     }
 
     @Test
     public void testMultipleReadersOnSingleLog() throws Exception {
-        sendReceive(4, 2000, 5, false);
+        sendReceive(4, 2000, 5, false, TIMEOUT_MS);
     }
 
     @Test
@@ -207,7 +207,7 @@ public abstract class LogTest {
             StaticBuffer sb = StaticArrayBuffer.of(raw);
             l.add(sb);
             expected.add(sb);
-            Thread.sleep(50L);
+            Thread.sleep(100L);
         }
         reader.await(TIMEOUT_MS);
         assertEquals(rounds, reader.msgCount);
@@ -252,11 +252,11 @@ public abstract class LogTest {
         assertEquals(3, reader2.totalValue.get());
     }
 
-    private void simpleSendReceive(int numMessages, int delayMS) throws Exception {
-        sendReceive(1, numMessages, delayMS, true);
+    protected void simpleSendReceive(int numMessages, int delayMS, long timeoutMS) throws Exception {
+        sendReceive(1, numMessages, delayMS, true, timeoutMS);
     }
 
-    public void sendReceive(int readers, int numMessages, int delayMS, boolean expectMessageOrder) throws Exception {
+    public void sendReceive(int readers, int numMessages, int delayMS, boolean expectMessageOrder, long timeoutMS) throws Exception {
         Preconditions.checkState(0 < readers);
         Log log1 = manager.openLog("test1");
         assertEquals("test1",log1.getName());
@@ -272,7 +272,7 @@ public abstract class LogTest {
         }
         for (int i = 0; i < counts.length; i++) {
             CountingReader count = counts[i];
-            count.await(TIMEOUT_MS);
+            count.await(timeoutMS);
             assertEquals("counter index " + i + " message count mismatch", numMessages, count.totalMsg.get());
             assertEquals("counter index " + i + " value mismatch", numMessages*(numMessages+1)/2,count.totalValue.get());
             assertTrue(log1.unregisterReader(count));
@@ -285,7 +285,7 @@ public abstract class LogTest {
      * Test MessageReader implementation. Allows waiting until an expected number of messages have
      * been read.
      */
-    private static class LatchMessageReader implements MessageReader {
+    protected static class LatchMessageReader implements MessageReader {
         private final CountDownLatch latch;
 
         LatchMessageReader(int expectedMessageCount) {
@@ -326,7 +326,7 @@ public abstract class LogTest {
         }
     }
 
-    private static class CountingReader extends LatchMessageReader {
+    protected static class CountingReader extends LatchMessageReader {
 
         private static final Logger log =
                 LoggerFactory.getLogger(CountingReader.class);
@@ -347,7 +347,7 @@ public abstract class LogTest {
             StaticBuffer content = message.getContent();
             assertEquals(8,content.length());
             long value = content.getLong(0);
-            log.info("Read log value {} by senderid \"{}\"", value, message.getSenderId());
+            log.debug("Read log value {} by senderid \"{}\"", value, message.getSenderId());
             if (expectIncreasingValues) {
                 assertTrue("Message out of order or duplicated: " + lastMessageValue + " preceded " + value, lastMessageValue<value);
                 lastMessageValue = value;
@@ -357,9 +357,9 @@ public abstract class LogTest {
         }
     }
 
-    private static class StoringReader extends LatchMessageReader {
+    protected static class StoringReader extends LatchMessageReader {
 
-        private List<StaticBuffer> msgs = new ArrayList<StaticBuffer>(64);
+        private List<StaticBuffer> msgs = new ArrayList<>(64);
         private volatile int msgCount = 0;
 
         StoringReader(int expectedMessageCount) {

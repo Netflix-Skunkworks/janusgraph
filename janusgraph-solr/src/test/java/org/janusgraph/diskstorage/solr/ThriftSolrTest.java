@@ -19,6 +19,7 @@ import org.janusgraph.CassandraStorageSetup;
 import org.janusgraph.diskstorage.BackendException;
 import org.janusgraph.diskstorage.configuration.ModifiableConfiguration;
 import org.janusgraph.diskstorage.configuration.WriteConfiguration;
+import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
 import org.junit.BeforeClass;
 import java.io.File;
 
@@ -31,9 +32,10 @@ public class ThriftSolrTest extends SolrJanusGraphIndexTest {
         ModifiableConfiguration config =
                 CassandraStorageSetup.getCassandraThriftConfiguration(ThriftSolrTest.class.getName());
         //Add index
-        config.set(SolrIndex.ZOOKEEPER_URL, SolrRunner.getMiniCluster().getZkServer().getZkAddress(), INDEX);
+        config.set(SolrIndex.ZOOKEEPER_URL, SolrRunner.getZookeeperUrls(), INDEX);
         config.set(SolrIndex.WAIT_SEARCHER, true, INDEX);
         config.set(INDEX_BACKEND,"solr",INDEX);
+        config.set(GraphDatabaseConfiguration.INDEX_MAX_RESULT_SET_SIZE, 3, INDEX);
         //TODO: set SOLR specific config options
         return config.getConfiguration();
     }

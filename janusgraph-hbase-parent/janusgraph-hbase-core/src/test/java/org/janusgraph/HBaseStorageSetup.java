@@ -14,7 +14,6 @@
 
 package org.janusgraph;
 
-import com.google.common.base.Joiner;
 import org.janusgraph.diskstorage.configuration.ModifiableConfiguration;
 import org.janusgraph.diskstorage.configuration.WriteConfiguration;
 import org.janusgraph.diskstorage.hbase.HBaseStoreManager;
@@ -31,11 +30,8 @@ import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -48,7 +44,7 @@ public class HBaseStorageSetup {
 
     public static final String HBASE_PARENT_DIR_PROP = "test.hbase.parentdir";
 
-    private static final Pattern HBASE_SUPPORTED_VERSION_PATTERN = Pattern.compile("^((0\\.9[8])|(1\\.[012]))\\..*");
+    private static final Pattern HBASE_SUPPORTED_VERSION_PATTERN = Pattern.compile("^((0\\.9[8])|(1\\.[0123]))\\..*");
 
     private static final String HBASE_VERSION_1_STRING = "1.";
 
@@ -98,15 +94,19 @@ public class HBaseStorageSetup {
     }
 
     public static ModifiableConfiguration getHBaseConfiguration(String tableName) {
+        return getHBaseConfiguration(tableName, "");
+    }
+
+    public static ModifiableConfiguration getHBaseConfiguration(String tableName, String graphName) {
         ModifiableConfiguration config = GraphDatabaseConfiguration.buildGraphConfiguration();
         config.set(GraphDatabaseConfiguration.STORAGE_BACKEND, "hbase");
-        if (!StringUtils.isEmpty(tableName)) config.set(HBaseStoreManager.HBASE_TABLE,tableName);
+        if (!StringUtils.isEmpty(tableName)) config.set(HBaseStoreManager.HBASE_TABLE, tableName);
+        if (!StringUtils.isEmpty(graphName)) config.set(GraphDatabaseConfiguration.GRAPH_NAME, graphName);
+        config.set(GraphDatabaseConfiguration.TIMESTAMP_PROVIDER, HBaseStoreManager.PREFERRED_TIMESTAMPS);
         config.set(GraphDatabaseConfiguration.TIMESTAMP_PROVIDER, HBaseStoreManager.PREFERRED_TIMESTAMPS);
         config.set(SimpleBulkPlacementStrategy.CONCURRENT_PARTITIONS, 1);
-//        config.set(GraphDatabaseConfiguration.STORAGE_NS.getName()+"."+HBaseStoreManager.HBASE_CONFIGURATION_NAMESPACE+
-//                    ".hbase.zookeeper.quorum","localhost");
-//        config.set(GraphDatabaseConfiguration.STORAGE_NS.getName()+"."+HBaseStoreManager.HBASE_CONFIGURATION_NAMESPACE+
-//                "hbase.zookeeper.property.clientPort",2181);
+        config.set(GraphDatabaseConfiguration.DROP_ON_CLEAR, false);
+
         return config;
     }
 
@@ -135,7 +135,7 @@ public class HBaseStorageSetup {
 
         log.info("Starting HBase");
         String scriptPath = getScriptDirForHBaseVersion(HBASE_TARGET_VERSION) + "/hbase-daemon.sh";
-        runCommand(scriptPath, "--config", getConfDirForHBaseVersion(HBASE_TARGET_VERSION), "start", "master");
+        DaemonRunner.runCommand(scriptPath, "--config", getConfDirForHBaseVersion(HBASE_TARGET_VERSION), "start", "master");
 
         HBASE = HBaseStatus.write(HBASE_STAT_FILE, HBASE_TARGET_VERSION);
 
@@ -232,7 +232,7 @@ public class HBaseStorageSetup {
         log.info("Shutting down HBase...");
 
         // First try graceful shutdown through the script...
-        runCommand(stat.getScriptDir() + "/hbase-daemon.sh", "--config", stat.getConfDir(), "stop", "master");
+        DaemonRunner.runCommand(stat.getScriptDir() + "/hbase-daemon.sh", "--config", stat.getConfDir(), "stop", "master");
 
         log.info("Shutdown HBase");
 
@@ -241,83 +241,5 @@ public class HBaseStorageSetup {
         log.info("Deleted {}", stat.getFile());
 
         HBASE = null;
-    }
-
-    /**
-     * Run the parameter as an external process. Returns if the command starts
-     * without throwing an exception and returns exit status 0. Throws an
-     * exception if there's any problem invoking the command or if it does not
-     * return zero exit status.
-     *
-     * Blocks indefinitely while waiting for the command to complete.
-     *
-     * @param argv
-     *            passed directly to {@link ProcessBuilder}'s constructor
-     */
-    private static void runCommand(String... argv) {
-
-        final String cmd = Joiner.on(" ").join(argv);
-        log.info("Executing {}", cmd);
-
-        ProcessBuilder pb = new ProcessBuilder(argv);
-        pb.redirectErrorStream(true);
-        Process startup;
-        try {
-            startup = pb.start();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        StreamLogger sl = new StreamLogger(startup.getInputStream());
-        sl.setDaemon(true);
-        sl.start();
-
-        try {
-            int exitcode = startup.waitFor(); // wait for script to return
-            if (0 == exitcode) {
-                log.info("Command \"{}\" exited with status 0", cmd);
-            } else {
-                throw new RuntimeException("Command \"" + cmd + "\" exited with status " + exitcode);
-            }
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
-
-        try {
-            sl.join(1000L);
-        } catch (InterruptedException e) {
-            log.warn("Failed to cleanup stdin handler thread after running command \"{}\"", cmd, e);
-        }
-    }
-
-    /*
-     * This could be retired in favor of ProcessBuilder.Redirect when we move to
-     * source level 1.7.
-     */
-    private static class StreamLogger extends Thread {
-
-        private final BufferedReader reader;
-        private static final Logger log =
-                LoggerFactory.getLogger(StreamLogger.class);
-
-        private StreamLogger(InputStream is) {
-            this.reader = new BufferedReader(new InputStreamReader(is));
-        }
-
-        @Override
-        public void run() {
-            String line;
-            try {
-                while (null != (line = reader.readLine())) {
-                    log.info("> {}", line);
-                    if (Thread.currentThread().isInterrupted()) {
-                        break;
-                    }
-                }
-
-                log.info("End of stream.");
-            } catch (IOException e) {
-                log.error("Unexpected IOException while reading stream {}", reader, e);
-            }
-        }
     }
 }

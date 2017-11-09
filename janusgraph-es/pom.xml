@@ -3,7 +3,7 @@
     <parent>
         <groupId>org.janusgraph</groupId>
         <artifactId>janusgraph</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.3.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>janusgraph-es</artifactId>
@@ -11,6 +11,16 @@
     <url>http://janusgraph.org</url>
     <properties>
         <top.level.basedir>${basedir}/..</top.level.basedir>
+        <elasticsearch1.test.version>1.7.6</elasticsearch1.test.version>
+        <elasticsearch2.test.version>2.4.6</elasticsearch2.test.version>
+        <elasticsearch5.test.version>5.6.2</elasticsearch5.test.version>
+        <elasticsearch6.test.version>6.0.0-rc1</elasticsearch6.test.version>
+        <elasticsearch.test.version>${elasticsearch5.test.version}</elasticsearch.test.version>
+        <!-- Enabling Groovy dynamic scripting is not required from ES 5.x -->
+        <elasticsearch.test.groovy.inline />
+        <skip.es.test>${skipTests}</skip.es.test>
+        <es.docker.image>docker.elastic.co/elasticsearch/elasticsearch</es.docker.image>
+        <elasticsearch.docker.test.version>${elasticsearch.test.version}</elasticsearch.docker.test.version>
     </properties>
     <dependencies>
         <dependency>
@@ -51,13 +61,24 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.elasticsearch</groupId>
-            <artifactId>elasticsearch</artifactId>
+            <groupId>org.elasticsearch.client</groupId>
+            <artifactId>elasticsearch-rest-client</artifactId>
             <version>${elasticsearch.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.elasticsearch.distribution.zip</groupId>
+            <artifactId>elasticsearch</artifactId>
+            <version>${elasticsearch.test.version}</version>
+            <scope>test</scope>
+            <type>zip</type>
             <exclusions>
                 <exclusion>
-                    <groupId>org.antlr</groupId>
-                    <artifactId>antlr-runtime</artifactId>
+                    <groupId>org.elasticsearch</groupId>
+                    <artifactId>elasticsearch</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -73,6 +94,7 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-log4j12</artifactId>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>
@@ -118,7 +140,7 @@
                             <goal>copy-resources</goal>
                         </goals>
                         <configuration>
-                            <outputDirectory>${project.basedir}/config</outputDirectory>
+                            <outputDirectory>${project.build.directory}/elasticsearch-${elasticsearch.test.version}/config</outputDirectory>
                             <delimiters>
                                 <delimiter>$MAVEN{*}</delimiter>
                             </delimiters>
@@ -153,40 +175,19 @@
             </plugin>
 
             <plugin>
-                <!-- Using assembly instead of resources because resources breaks filemodes and
-                     permissions: http://jira.codehaus.org/browse/MRESOURCES-132 -->
-                <artifactId>maven-assembly-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>copy-es-bin</id>
-                        <phase>process-test-resources</phase>
-                        <goals>
-                            <goal>single</goal>
-                        </goals>
-                        <configuration>
-                            <appendAssemblyId>false</appendAssemblyId>
-                            <finalName>/</finalName>
-                            <attach>false</attach>
-                            <outputDirectory>${project.basedir}/bin</outputDirectory>
-                            <descriptors>
-                                <descriptor>${project.basedir}/src/test/binassembly.xml</descriptor>
-                            </descriptors>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <plugin>
                 <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
+                    <!-- Unpack Elasticsearch distribution for testing. -->
                     <execution>
-                        <id>build-es-classpath</id>
-                        <phase>process-test-resources</phase>
+                        <id>unpack-plugins</id>
                         <goals>
-                            <goal>build-classpath</goal>
+                            <goal>unpack-dependencies</goal>
                         </goals>
+                        <phase>generate-test-resources</phase>
                         <configuration>
-                            <outputFile>${project.build.directory}/es_classpath.txt</outputFile>
+                            <outputDirectory>${project.build.directory}</outputDirectory>
+                            <includeGroupIds>org.elasticsearch.distribution.zip</includeGroupIds>
+                            <scope>test</scope>
                         </configuration>
                     </execution>
                 </executions>
@@ -223,7 +224,8 @@
                     <execution>
                         <id>default-test</id>
                         <configuration>
-                            <argLine>-Dtest.cassandra.confdir=${project.build.directory}/cassandra/conf/localhost-murmur -Dtest.cassandra.datadir=${project.build.directory}/cassandra/data/localhost-murmur</argLine>
+                            <argLine>${default.test.jvm.opts} -Dtest.cassandra.confdir=${project.build.directory}/cassandra/conf/localhost-murmur -Dtest.cassandra.datadir=${project.build.directory}/cassandra/data/localhost-murmur</argLine>
+                            <skipTests>${skip.es.test}</skipTests>
                         </configuration>
                     </execution>
 
@@ -259,8 +261,68 @@
         </plugins>
     </build>
 
-    <!-- Redeclare gpg-plugin at the bottom to ensure it runs after all the other packaging goals -->
     <profiles>
+        <profile>
+            <id>elasticsearch1</id>
+            <properties>
+                <!-- Testing with Elasticsearch 1.x requires Docker (es-docker profile). -->
+                <elasticsearch.docker.test.version>${elasticsearch1.test.version}</elasticsearch.docker.test.version>
+                <es.docker.image>elasticsearch</es.docker.image>
+                <!-- Groovy dynamic scripting must be enabled when testing on ES 1.x/2.x servers -->
+                <elasticsearch.test.groovy.inline>script.engine.groovy.inline.update: true</elasticsearch.test.groovy.inline>
+                <!-- Test version below used to unpack distribution artifact is irrelevant when testing with Docker -->
+                <elasticsearch.test.version>${elasticsearch2.test.version}</elasticsearch.test.version>
+            </properties>
+        </profile>
+        <profile>
+            <id>elasticsearch2</id>
+            <properties>
+                <elasticsearch.test.version>${elasticsearch2.test.version}</elasticsearch.test.version>
+                <!-- Groovy dynamic scripting must be enabled when testing on ES 1.x/2.x servers -->
+                <elasticsearch.test.groovy.inline>script.engine.groovy.inline.update: true</elasticsearch.test.groovy.inline>
+                <es.docker.image>elasticsearch</es.docker.image>
+            </properties>
+        </profile>
+        <profile>
+            <id>elasticsearch5</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <elasticsearch.test.version>${elasticsearch5.test.version}</elasticsearch.test.version>
+                <!-- Enabling Groovy dynamic scripting is not required from ES 5.x -->
+                <elasticsearch.test.groovy.inline />
+            </properties>
+        </profile>
+        <profile>
+            <id>elasticsearch6</id>
+            <properties>
+                <elasticsearch.test.version>${elasticsearch6.test.version}</elasticsearch.test.version>
+                <!-- Enabling Groovy dynamic scripting is not required from ES 5.x -->
+                <elasticsearch.test.groovy.inline />
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>default-test</id>
+                                <configuration>
+                                    <argLine>${default.test.jvm.opts} -Dtest.cassandra.confdir=${project.build.directory}/cassandra/conf/localhost-murmur -Dtest.cassandra.datadir=${project.build.directory}/cassandra/data/localhost-murmur</argLine>
+                                    <skipTests>${skip.es.test}</skipTests>
+                                    <excludes>
+                                        <exclude>**/ElasticSearchMultiTypeIndexTest.java</exclude>
+                                    </excludes>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Redeclare gpg-plugin at the bottom to ensure it runs after all the other packaging goals -->
         <profile>
             <id>janusgraph-release</id>
 
@@ -268,6 +330,98 @@
                 <plugins>
                     <plugin>
                         <artifactId>maven-gpg-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <!-- Run tests with Elasticsearch Docker container -->
+            <id>es-docker</id>
+            <properties>
+                <skip.es.test>true</skip.es.test>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <skipITs>false</skipITs>
+                            <argLine>${default.test.jvm.opts} -Dtest.cassandra.confdir=${project.build.directory}/cassandra/conf/localhost-murmur -Dtest.cassandra.datadir=${project.build.directory}/cassandra/data/localhost-murmur</argLine>
+                            <includes>
+                                <include>**/org/janusgraph/diskstorage/es/*.java</include>
+                            </includes>
+                            <systemProperties>
+                                <property>
+                                    <name>index.search.hostname</name>
+                                    <value>0.0.0.0</value>
+                                </property>
+                                <property>
+                                    <name>log4j.configuration</name>
+                                    <value>file:${project.build.directory}/test-classes/log4j.properties</value>
+                                </property>
+                            </systemProperties>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>io.fabric8</groupId>
+                        <artifactId>docker-maven-plugin</artifactId>
+                        <version>0.18.1</version>
+                        <configuration>
+                            <images>
+                                <image>
+                                    <alias>elasticsearch</alias>
+                                    <name>${es.docker.image}:${elasticsearch.docker.test.version}</name>
+                                    <run>
+                                        <ports>
+                                            <port>9200:9200</port>
+                                        </ports>
+                                        <volumes>
+                                            <bind>
+                                                <volume>${project.build.directory}/elasticsearch-${elasticsearch.test.version}/config/elasticsearch.docker.yml:/usr/share/elasticsearch/config/elasticsearch.yml</volume>
+                                            </bind>
+                                        </volumes>
+                                        <env>
+                                            <ES_JAVA_OPTS>-Xms512m -Xmx512m</ES_JAVA_OPTS>
+                                            <http.host>0.0.0.0</http.host>
+                                            <transport.host>127.0.0.1</transport.host>
+                                        </env>
+                                        <wait>
+                                            <http>
+                                                <url>http://localhost:9200</url>
+                                                <method>GET</method>
+                                                <status>200..399</status>
+                                            </http>
+                                            <time>60000</time>
+                                        </wait>
+                                    </run>
+                                </image>
+                            </images>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>docker-start</id>
+                                <phase>pre-integration-test</phase>
+                                <goals>
+                                    <goal>start</goal>
+                                </goals>
+                            </execution>
+                            <execution>
+                                <id>docker-stop</id>
+                                <phase>post-integration-test</phase>
+                                <goals>
+                                    <goal>stop</goal>
+                                    <goal>remove</goal>
+                                </goals>
+                            </execution>
+                        </executions>
                     </plugin>
                 </plugins>
             </build>

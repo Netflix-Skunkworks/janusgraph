@@ -3,7 +3,7 @@
     <parent>
         <groupId>org.janusgraph</groupId>
         <artifactId>janusgraph</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.3.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <packaging>pom</packaging>
@@ -19,6 +19,7 @@
         <assembly.cfilter.in.dir>${project.basedir}/src/assembly/cfilter</assembly.cfilter.in.dir>
         <assembly.cfilter.out.dir>${project.build.directory}/cfilter</assembly.cfilter.out.dir>
         <assembly.descriptor.dir>${project.basedir}/src/assembly/descriptor</assembly.descriptor.dir>
+        <assembly.es.dir>${project.build.directory}/elasticsearch-${elasticsearch.version}</assembly.es.dir>
 
         <!-- Variables for integration testing on release-candidate archive files -->
         <test.expect.dir>${project.build.directory}/test-classes</test.expect.dir>
@@ -38,6 +39,7 @@
         <pkgtools.dir>${project.basedir}/..</pkgtools.dir>
 
         <skipDefaultDistroIT>${it.skip}</skipDefaultDistroIT>
+        <docker.maven.version>0.4.13</docker.maven.version>
     </properties>
 
     <modules>
@@ -71,12 +73,6 @@
             <groupId>org.apache.tinkerpop</groupId>
             <artifactId>hadoop-gremlin</artifactId>
             <version>${tinkerpop.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.hadoop</groupId>
-                    <artifactId>hadoop-client</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.tinkerpop</groupId>
@@ -86,6 +82,10 @@
                 <exclusion>
                     <groupId>net.jpountz.lz4</groupId>
                     <artifactId>lz4</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.eclipse.jetty.orbit</groupId>
+                    <artifactId>javax.servlet</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -121,6 +121,26 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.elasticsearch.distribution.zip</groupId>
+            <artifactId>elasticsearch</artifactId>
+            <version>${elasticsearch.version}</version>
+            <type>zip</type>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.elasticsearch</groupId>
+                    <artifactId>elasticsearch</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>janusgraph-solr</artifactId>
             <version>${project.version}</version>
@@ -153,6 +173,29 @@
 
     <build>
         <plugins>
+            <plugin>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>unpack-plugins</id>
+                        <goals>
+                            <goal>unpack-dependencies</goal>
+                        </goals>
+                        <phase>generate-test-resources</phase>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}</outputDirectory>
+                            <includeGroupIds>org.elasticsearch.distribution.zip</includeGroupIds>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>copy-dependencies</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <!--
                 Filter the files in src/release during the
                 process-resources phase. Disable default resource goal
@@ -427,77 +470,6 @@
             </plugin>
         </plugins>
 
-        <pluginManagement>
-            <plugins>
-                <!-- Delete bin, lib, conf, ... dirs in the root -->
-                <plugin>
-                    <artifactId>maven-clean-plugin</artifactId>
-                    <executions>
-                        <execution>
-                            <id>clean-dev-dirs-hadoop</id>
-                            <phase>none</phase>
-                            <goals>
-                                <goal>clean</goal>
-                            </goals>
-                            <configuration>
-                                <excludeDefaultDirectories>true</excludeDefaultDirectories>
-                                <filesets>
-                                    <fileset>
-                                        <directory>${top.level.basedir}/bin/</directory>
-                                    </fileset>
-                                    <fileset>
-                                        <directory>${top.level.basedir}/conf/</directory>
-                                    </fileset>
-                                    <fileset>
-                                        <directory>${top.level.basedir}/db/</directory>
-                                    </fileset>
-                                    <fileset>
-                                        <directory>${top.level.basedir}/examples/</directory>
-                                    </fileset>
-                                    <fileset>
-                                        <directory>${top.level.basedir}/ext/</directory>
-                                    </fileset>
-                                    <fileset>
-                                        <directory>${top.level.basedir}/lib/</directory>
-                                    </fileset>
-                                    <fileset>
-                                        <directory>${top.level.basedir}/log/</directory>
-                                    </fileset>
-                                    <fileset>
-                                        <directory>${top.level.basedir}/rexhome/</directory>
-                                    </fileset>
-                                </filesets>
-                            </configuration>
-                        </execution>
-                    </executions>
-                </plugin>
-
-                <plugin>
-                    <artifactId>maven-assembly-plugin</artifactId>
-                    <executions>
-                        <execution>
-                            <id>install-dev-dirs-hadoop</id>
-                            <phase>none</phase>
-                            <goals>
-                                <goal>single</goal>
-                            </goals>
-                            <configuration>
-                                <attach>false</attach>
-                                <outputDirectory>${top.level.basedir}</outputDirectory>
-                                <finalName>/</finalName>
-                                <appendAssemblyId>false</appendAssemblyId>
-                                <descriptors>
-                                    <descriptor>../src/assembly/descriptor/filesystem.xml</descriptor>
-                                </descriptors>
-                                <formats combine.self="override">
-                                    <format>dir</format>
-                                </formats>
-                            </configuration>
-                        </execution>
-                    </executions>
-                </plugin>
-            </plugins>
-        </pluginManagement>
     </build>
 
     <profiles>
@@ -575,6 +547,32 @@
                         </executions>
                     </plugin>
                 </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>janusgraph-docker</id>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>com.spotify</groupId>
+                            <artifactId>docker-maven-plugin</artifactId>
+                            <version>${docker.maven.version}</version>
+                            <configuration>
+                                <dockerDirectory>${project.basedir}/janusgraph-dist-hadoop-2</dockerDirectory>
+                                <buildArgs>
+                                    <server_zip>target/janusgraph-${project.version}-hadoop2.zip</server_zip>
+                                </buildArgs>
+                                <forceTags>true</forceTags>
+                                <imageName>janusgraph/server</imageName>
+                                <imageTags>
+                                    <imageTag>${project.version}</imageTag>
+                                </imageTags>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
             </build>
         </profile>
 

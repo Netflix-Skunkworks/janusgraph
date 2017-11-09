@@ -14,38 +14,49 @@
 
 package org.janusgraph.diskstorage.es;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
-import org.janusgraph.StorageSetup;
+
+import org.apache.commons.configuration.BaseConfiguration;
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang.RandomStringUtils;
+import org.apache.http.HttpHost;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.methods.HttpDelete;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.codehaus.jackson.map.ObjectMapper;
 import org.janusgraph.core.Cardinality;
 import org.janusgraph.core.JanusGraphException;
-import org.janusgraph.core.schema.Parameter;
 import org.janusgraph.core.attribute.*;
 import org.janusgraph.diskstorage.BackendException;
+import org.janusgraph.diskstorage.configuration.BasicConfiguration;
 import org.janusgraph.diskstorage.configuration.Configuration;
 import org.janusgraph.diskstorage.configuration.ModifiableConfiguration;
+import org.janusgraph.diskstorage.configuration.backend.CommonsConfiguration;
 import org.janusgraph.diskstorage.indexing.IndexProvider;
 import org.janusgraph.diskstorage.indexing.IndexProviderTest;
 import org.janusgraph.core.schema.Mapping;
 import org.janusgraph.diskstorage.indexing.IndexQuery;
 import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
 import org.janusgraph.graphdb.query.condition.PredicateCondition;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.nio.charset.Charset;
 import java.util.Date;
 import java.util.UUID;
 
-import static org.janusgraph.diskstorage.es.ElasticSearchIndex.*;
-import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_CONF_FILE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_HOSTS;
 
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
@@ -53,9 +64,37 @@ import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.IN
 
 public class ElasticSearchIndexTest extends IndexProviderTest {
 
+    static ElasticsearchRunner esr;
+    static HttpHost host;
+    static CloseableHttpClient httpClient;
+    static ObjectMapper objectMapper;
+
+    @BeforeClass
+    public static void startElasticsearch() throws Exception {
+        esr = new ElasticsearchRunner();
+        esr.start();
+        httpClient = HttpClients.createDefault();
+        objectMapper = new ObjectMapper();
+        host = new HttpHost(InetAddress.getByName(esr.getHostname()), ElasticsearchRunner.PORT);
+        if (esr.getEsMajorVersion().value > 2) {
+            IOUtils.closeQuietly(httpClient.execute(host, new HttpDelete("_ingest/pipeline/pipeline_1")));
+            final HttpPut newpipeline = new HttpPut("_ingest/pipeline/pipeline_1");
+            newpipeline.setHeader("Content-Type", "application/json");
+            newpipeline.setEntity(new StringEntity("{\"description\":\"Test pipeline\",\"processors\":[{\"set\":{\"field\":\"" +STRING+ "\",\"value\":\"hello\"}}]}", Charset.forName("UTF-8")));
+            IOUtils.closeQuietly(httpClient.execute(host, newpipeline));
+        }
+    }
+
+    @AfterClass
+    public static void stopElasticsearch() throws ClientProtocolException, IOException {
+        IOUtils.closeQuietly(httpClient.execute(host, new HttpDelete("janusgraph*")));
+        IOUtils.closeQuietly(httpClient);
+        esr.stop();
+    }
+
     @Override
     public IndexProvider openIndex() throws BackendException {
-        return new ElasticSearchIndex(getLocalESTestConfig());
+        return new ElasticSearchIndex(getESTestConfig());
     }
 
     @Override
@@ -63,28 +102,40 @@ public class ElasticSearchIndexTest extends IndexProviderTest {
         return true;
     }
 
-    public static final Configuration getLocalESTestConfig() {
-        final String index = "es";
-        ModifiableConfiguration config = GraphDatabaseConfiguration.buildGraphConfiguration();
-        config.set(LOCAL_MODE, true, index);
-        config.set(CLIENT_ONLY, false, index);
-        config.set(TTL_INTERVAL, "5s", index);
-        config.set(GraphDatabaseConfiguration.INDEX_DIRECTORY, StorageSetup.getHomeDir("es"), index);
-        return config.restrictTo(index);
+    @Override
+    public String getEnglishAnalyzerName() {
+        return "english";
+    }
+    
+    @Override
+    public String getKeywordAnalyzerName() {
+        return "keyword";
     }
 
+    public Configuration getESTestConfig() {
+        final String index = "es";
+        final CommonsConfiguration cc = new CommonsConfiguration(new BaseConfiguration());
+        if (esr.getEsMajorVersion().value > 2) {
+            cc.set("index." + index + ".elasticsearch.ingest-pipeline.ingestvertex", "pipeline_1");
+        }
+        return esr.setElasticsearchConfiguration(new ModifiableConfiguration(GraphDatabaseConfiguration.ROOT_NS,cc, BasicConfiguration.Restriction.NONE), index)
+            .set(GraphDatabaseConfiguration.INDEX_MAX_RESULT_SET_SIZE, 3, index)
+            .restrictTo(index);
+    }
 
     @Test
     public void testSupport() {
         assertTrue(index.supports(of(String.class, Cardinality.SINGLE), Text.CONTAINS));
-        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, new Parameter("mapping", Mapping.TEXT)), Text.CONTAINS_PREFIX));
-        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, new Parameter("mapping", Mapping.TEXT)), Text.CONTAINS_REGEX));
-        assertFalse(index.supports(of(String.class, Cardinality.SINGLE, new Parameter("mapping", Mapping.TEXT)), Text.REGEX));
-        assertFalse(index.supports(of(String.class, Cardinality.SINGLE, new Parameter("mapping",Mapping.STRING)), Text.CONTAINS));
-        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, new Parameter("mapping", Mapping.STRING)), Text.PREFIX));
-        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, new Parameter("mapping", Mapping.STRING)), Text.REGEX));
-        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, new Parameter("mapping",Mapping.STRING)), Cmp.EQUAL));
-        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, new Parameter("mapping",Mapping.STRING)), Cmp.NOT_EQUAL));
+        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, Mapping.TEXT.asParameter()), Text.CONTAINS_PREFIX));
+        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, Mapping.TEXT.asParameter()), Text.CONTAINS_REGEX));
+        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, Mapping.TEXT.asParameter()), Text.CONTAINS_FUZZY));
+        assertFalse(index.supports(of(String.class, Cardinality.SINGLE, Mapping.TEXT.asParameter()), Text.REGEX));
+        assertFalse(index.supports(of(String.class, Cardinality.SINGLE, Mapping.STRING.asParameter()), Text.CONTAINS));
+        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, Mapping.STRING.asParameter()), Text.PREFIX));
+        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, Mapping.STRING.asParameter()), Text.FUZZY));
+        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, Mapping.STRING.asParameter()), Text.REGEX));
+        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, Mapping.STRING.asParameter()), Cmp.EQUAL));
+        assertTrue(index.supports(of(String.class, Cardinality.SINGLE, Mapping.STRING.asParameter()), Cmp.NOT_EQUAL));
 
         assertTrue(index.supports(of(Date.class, Cardinality.SINGLE), Cmp.EQUAL));
         assertTrue(index.supports(of(Date.class, Cardinality.SINGLE), Cmp.LESS_THAN_EQUAL));
@@ -98,65 +149,16 @@ public class ElasticSearchIndexTest extends IndexProviderTest {
 
         assertTrue(index.supports(of(UUID.class, Cardinality.SINGLE), Cmp.EQUAL));
         assertTrue(index.supports(of(UUID.class, Cardinality.SINGLE), Cmp.NOT_EQUAL));
-    }
 
-    @Test
-    public void testConfiguration() throws BackendException {
-        // Test that local-mode has precedence over hostname
-        final String index = "es";
-        ModifiableConfiguration config = GraphDatabaseConfiguration.buildGraphConfiguration();
-        config.set(LOCAL_MODE, true, index);
-        config.set(CLIENT_ONLY, true, index);
-        config.set(INDEX_HOSTS, new String[] { "10.0.0.1" }, index);
-        config.set(GraphDatabaseConfiguration.INDEX_DIRECTORY, StorageSetup.getHomeDir("es"), index);
-        Configuration indexConfig = config.restrictTo(index);
-
-        IndexProvider idx = new ElasticSearchIndex(indexConfig); // Shouldn't throw exception
-        idx.close();
-
-        config = GraphDatabaseConfiguration.buildGraphConfiguration();
-        config.set(LOCAL_MODE, false, index);
-        config.set(CLIENT_ONLY, true, index);
-        config.set(INDEX_HOSTS, new String[] { "10.0.0.1" }, index);
-        config.set(GraphDatabaseConfiguration.INDEX_DIRECTORY, StorageSetup.getHomeDir("es"), index);
-        indexConfig = config.restrictTo(index);
-
-        RuntimeException expectedException = null;
-        try {
-            idx = new ElasticSearchIndex(indexConfig); // Should try 10.0.0.1 and throw exception
-            idx.close();
-        } catch (RuntimeException re) {
-            expectedException = re;
-        }
-        assertNotNull(expectedException);
-    }
-
-    @Test
-    public void testConfigurationFile() throws BackendException {
-        final String index = "es";
-        ModifiableConfiguration config = GraphDatabaseConfiguration.buildGraphConfiguration();
-        config.set(LOCAL_MODE, true, index);
-        config.set(CLIENT_ONLY, true, index);
-        config.set(INDEX_CONF_FILE, Joiner.on(File.separator).join("target", "test-classes", "es_nodename_foo.yml"), index);
-        config.set(GraphDatabaseConfiguration.INDEX_DIRECTORY, StorageSetup.getHomeDir("es"), index);
-        Configuration indexConfig = config.restrictTo(index);
-
-        ElasticSearchIndex idx = new ElasticSearchIndex(indexConfig); // Shouldn't throw exception
-        idx.close();
-
-        assertEquals("foo", idx.getNode().settings().get("node.name"));
-
-        config = GraphDatabaseConfiguration.buildGraphConfiguration();
-        config.set(LOCAL_MODE, true, index);
-        config.set(CLIENT_ONLY, true, index);
-        config.set(INDEX_CONF_FILE, Joiner.on(File.separator).join("target", "test-classes", "es_nodename_bar.yml"), index);
-        config.set(GraphDatabaseConfiguration.INDEX_DIRECTORY, StorageSetup.getHomeDir("es"), index);
-        indexConfig = config.restrictTo(index);
-
-        idx = new ElasticSearchIndex(indexConfig); // Shouldn't throw exception
-        idx.close();
-
-        assertEquals("bar", idx.getNode().settings().get("node.name"));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE)));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE), Geo.WITHIN));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE), Geo.INTERSECT));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE), Geo.DISJOINT));
+        assertFalse(index.supports(of(Geoshape.class, Cardinality.SINGLE), Geo.CONTAINS));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE, Mapping.PREFIX_TREE.asParameter()), Geo.WITHIN));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE, Mapping.PREFIX_TREE.asParameter()), Geo.INTERSECT));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE, Mapping.PREFIX_TREE.asParameter()), Geo.CONTAINS));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE, Mapping.PREFIX_TREE.asParameter()), Geo.DISJOINT));
     }
 
     @Test
@@ -173,7 +175,8 @@ public class ElasticSearchIndexTest extends IndexProviderTest {
             fail("Commit should not have succeeded.");
         } catch (JanusGraphException e) {
             // Looking for a NumberFormatException since we tried to stick a string of text into a time field.
-            if (!Throwables.getRootCause(e).getMessage().contains("NumberFormatException")) {
+            if (!Throwables.getRootCause(e).getMessage().contains("number_format_exception")
+                && !Throwables.getRootCause(e).getMessage().contains("NumberFormatException")) {
                 throw e;
             }
         } finally {
@@ -200,7 +203,48 @@ public class ElasticSearchIndexTest extends IndexProviderTest {
 
         clopen();
 
-        assertEquals("unescaped", tx.query(new IndexQuery("vertex", PredicateCondition.of(PHONE_SET, Cmp.EQUAL, "$123"))).get(0));
-        assertEquals("unescaped", tx.query(new IndexQuery("vertex", PredicateCondition.of(PHONE_SET, Cmp.EQUAL, "12345"))).get(0));
+        assertEquals("unescaped", tx.queryStream(new IndexQuery("vertex", PredicateCondition.of(PHONE_SET, Cmp.EQUAL, "$123"))).toArray()[0]);
+        assertEquals("unescaped", tx.queryStream(new IndexQuery("vertex", PredicateCondition.of(PHONE_SET, Cmp.EQUAL, "12345"))).toArray()[0]);
+    }
+
+    /**
+     * Test adding and overwriting with long string content.
+     *
+     */
+    @Test
+    public void testUpdateAdditionWithLongString() throws Exception {
+        initialize("vertex");
+        Multimap<String, Object> initialDoc = HashMultimap.create();
+        initialDoc.put(TEXT, RandomStringUtils.randomAlphanumeric(500000) + " bob " + RandomStringUtils.randomAlphanumeric(500000));
+
+        add("vertex", "long", initialDoc, true);
+
+        clopen();
+
+        assertEquals(1, tx.queryStream(new IndexQuery("vertex", PredicateCondition.of(TEXT, Text.CONTAINS, "bob"))).count());
+        assertEquals(0, tx.queryStream(new IndexQuery("vertex", PredicateCondition.of(TEXT, Text.CONTAINS, "world"))).count());
+
+        tx.add("vertex", "long", TEXT, RandomStringUtils.randomAlphanumeric(500000) + " world " + RandomStringUtils.randomAlphanumeric(500000), false);
+
+        clopen();
+
+        assertEquals(0, tx.queryStream(new IndexQuery("vertex", PredicateCondition.of(TEXT, Text.CONTAINS, "bob"))).count());
+        assertEquals(1, tx.queryStream(new IndexQuery("vertex", PredicateCondition.of(TEXT, Text.CONTAINS, "world"))).count());
+    }
+
+    /**
+     * Test injest pipeline.
+     */
+    @Test
+    public void testInjestPipeline() throws Exception {
+        if (esr.getEsMajorVersion().value > 2) {
+            initialize("ingestvertex");
+            final Multimap<String, Object> docs = HashMultimap.create();
+            docs.put(TEXT, "bob");
+            add("ingestvertex", "pipeline", docs, true);
+            clopen();
+            assertEquals(1, tx.queryStream(new IndexQuery("ingestvertex", PredicateCondition.of(TEXT, Text.CONTAINS, "bob"))).count());
+            assertEquals(1, tx.queryStream(new IndexQuery("ingestvertex", PredicateCondition.of(STRING, Cmp.EQUAL, "hello"))).count());
+        }
     }
 }

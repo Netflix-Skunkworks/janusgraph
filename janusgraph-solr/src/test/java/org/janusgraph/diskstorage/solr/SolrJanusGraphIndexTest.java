@@ -17,6 +17,7 @@ package org.janusgraph.diskstorage.solr;
 import org.janusgraph.graphdb.JanusGraphIndexTest;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -46,13 +47,22 @@ public abstract class SolrJanusGraphIndexTest extends JanusGraphIndexTest {
 
     @Override
     protected boolean supportsCollections() {
-        return false;
+        return true;
     }
 
     @Test
     public void testRawQueries() {
         clopen(option(SolrIndex.DYNAMIC_FIELDS,JanusGraphIndexTest.INDEX),false);
         super.testRawQueries();
+    }
+
+    /**
+     * Dropping collection is not implemented with Solr Cloud to accommodate use case where collection is created
+     * outside of JanusGraph and associated with a config set with a different name.
+     * @throws Exception
+     */
+    @Override @Test @Ignore
+    public void testClearStorage() throws Exception {
     }
 
 }

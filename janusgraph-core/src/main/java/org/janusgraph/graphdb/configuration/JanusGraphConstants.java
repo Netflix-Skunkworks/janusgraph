@@ -14,14 +14,17 @@
 
 package org.janusgraph.graphdb.configuration;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import org.janusgraph.core.JanusGraphFactory;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Properties;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import org.janusgraph.core.JanusGraphFactory;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 /**
  * Collection of constants used throughput the JanusGraph codebase.
@@ -42,6 +45,21 @@ public class JanusGraphConstants {
      */
     public static final List<String> COMPATIBLE_VERSIONS;
 
+    /**
+     * Past versions of Titan Graph with which the runtime version shares a compatible storage format
+     */
+    public static final List<String> TITAN_COMPATIBLE_VERSIONS;
+
+    /**
+     * Name of the ids.store-name used by JanusGraph which is configurable
+     */
+    public static final String JANUSGRAPH_ID_STORE_NAME = "janusgraph_ids";
+
+    /**
+     * Past name of the ids.store-name used by Titan Graph but which was not configurable
+     */
+    public static final String TITAN_ID_STORE_NAME = "titan_ids";
+
     static {
 
         /*
@@ -55,24 +73,24 @@ public class JanusGraphConstants {
         String packageName = p.getName();
         Preconditions.checkNotNull(packageName, "Unable to get name of package containing " + JanusGraphConstants.class);
         String resourceName = packageName.replace('.', '/') + "/" + JANUSGRAPH_PROPERTIES_FILE;
-        InputStream is = JanusGraphFactory.class.getClassLoader().getResourceAsStream(resourceName);
-        Preconditions.checkNotNull(is, "Unable to locate classpath resource " + resourceName + " containing JanusGraph version");
 
         Properties props = new Properties();
 
-        try {
+        try (InputStream is = JanusGraphFactory.class.getClassLoader().getResourceAsStream(resourceName)) {
+            Preconditions.checkNotNull(is, "Unable to locate classpath resource " + resourceName + " containing JanusGraph version");
             props.load(is);
         } catch (IOException e) {
             throw new RuntimeException("Failed to load properties from " + resourceName, e);
         }
 
         VERSION = props.getProperty("janusgraph.version");
-        ImmutableList.Builder<String> b = ImmutableList.builder();
-        for (String v : props.getProperty("janusgraph.compatible-versions", "").split(",")) {
-            v = v.trim();
-            if (!v.isEmpty()) b.add(v);
-        }
-        COMPATIBLE_VERSIONS = b.build();
+        COMPATIBLE_VERSIONS = getCompatibleVersions(props, "janusgraph.compatible-versions");
+        TITAN_COMPATIBLE_VERSIONS = getCompatibleVersions(props, "titan.compatible-versions");
     }
 
+    static List<String> getCompatibleVersions(Properties props, String key) {
+        ImmutableList.Builder<String> b = ImmutableList.builder();
+        b.addAll(Stream.of(props.getProperty(key, "").split(",")).map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList()));
+        return b.build();
+    }
 }

@@ -1,6 +1,5 @@
 [[advanced]]
-Advanced Topics
-===============
+= Advanced Topics
 
 include::advschema.txt[]
 
@@ -19,3 +18,7 @@ include::partitioning.txt[]
 include::serializer.txt[]
 
 include::hadoop.txt[]
+
+include::monitoring.txt[]
+
+include::migrating.txt[]

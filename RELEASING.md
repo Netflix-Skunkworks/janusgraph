@@ -42,7 +42,6 @@ Documentation pages:
 * changelog.txt
 * versions.txt
 * upgrade.txt
-* acknowledgements.txt
 
 Files in the main repo:
 
@@ -105,7 +104,7 @@ earlier.  It will appear on Maven Central in an hour or two.
 
 Finally, push your local changes to Github:
 
-```bash 
+```bash
 # cd to the janusgraph repository root if not already there
 git push origin $BRANCH_NAME
 git push origin refs/tags/$RELEASE_VERSION
@@ -125,5 +124,5 @@ SNAPSHOT version's artifacts to the Sonatype OSS snapshots repository.
 ```bash
 # From the repository root
 git checkout $BRANCH_NAME
-mvn clean deploy
+mvn clean deploy -Pjanusgraph-release
 ```

@@ -3,7 +3,7 @@
     <parent>
         <groupId>org.janusgraph</groupId>
         <artifactId>janusgraph-hadoop-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.3.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>janusgraph-hadoop-core</artifactId>
@@ -34,6 +34,11 @@
             <artifactId>janusgraph-cassandra</artifactId>
             <version>${project.version}</version>
             <!-- TODO this should be scoped test -->
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>janusgraph-hbase-core</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -84,9 +89,6 @@
                             <goal>testCompile</goal>
                             -->
                         </goals>
-                        <configuration>
-                            <providerSelection>1.8</providerSelection>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>

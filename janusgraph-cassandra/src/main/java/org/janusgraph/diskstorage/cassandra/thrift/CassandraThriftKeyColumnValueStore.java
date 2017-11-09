@@ -152,9 +152,9 @@ public class CassandraThriftKeyColumnValueStore implements KeyColumnValueStore {
 			 */
             Map<StaticBuffer, EntryList> results = new HashMap<StaticBuffer, EntryList>();
 
-            for (ByteBuffer key : rows.keySet()) {
-                results.put(StaticArrayBuffer.of(key),
-                        CassandraHelper.makeEntryList(rows.get(key), entryGetter, query.getSliceEnd(), query.getLimit()));
+            for (final Map.Entry<ByteBuffer, List<ColumnOrSuperColumn>> entry : rows.entrySet()) {
+                results.put(StaticArrayBuffer.of(entry.getKey()),
+                        CassandraHelper.makeEntryList(entry.getValue(), entryGetter, query.getSliceEnd(), query.getLimit()));
             }
 
             return results;
@@ -406,7 +406,7 @@ public class CassandraThriftKeyColumnValueStore implements KeyColumnValueStore {
 
             this.seenEnd = false;
             this.isClosed = false;
-            this.ksIter = Iterators.emptyIterator();
+            this.ksIter = Collections.emptyIterator();
             this.mostRecentRow = null;
             this.omitEndToken = omitEndToken;
         }

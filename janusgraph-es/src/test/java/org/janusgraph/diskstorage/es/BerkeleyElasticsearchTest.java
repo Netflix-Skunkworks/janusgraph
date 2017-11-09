@@ -14,19 +14,18 @@
 
 package org.janusgraph.diskstorage.es;
 
-import org.janusgraph.StorageSetup;
 import org.janusgraph.core.JanusGraph;
-import org.janusgraph.diskstorage.configuration.ModifiableConfiguration;
 import org.janusgraph.diskstorage.configuration.WriteConfiguration;
 import org.janusgraph.example.GraphOfTheGodsFactory;
 import org.janusgraph.graphdb.JanusGraphIndexTest;
+import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
 import org.janusgraph.util.system.IOUtils;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
 
-import static org.janusgraph.diskstorage.es.ElasticSearchIndex.*;
-import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.*;
 import static org.janusgraph.BerkeleyStorageSetup.getBerkeleyJEConfiguration;
 
 /**
@@ -35,20 +34,28 @@ import static org.janusgraph.BerkeleyStorageSetup.getBerkeleyJEConfiguration;
 
 public class BerkeleyElasticsearchTest extends JanusGraphIndexTest {
 
+    private static ElasticsearchRunner esr;
+
+    @BeforeClass
+    public static void startElasticsearch() {
+        esr = new ElasticsearchRunner();
+        esr.start();
+    }
+
+    @AfterClass
+    public static void stopElasticsearch() {
+        esr.stop();
+    }
+
     public BerkeleyElasticsearchTest() {
         super(true, true, true);
     }
 
     @Override
     public WriteConfiguration getConfiguration() {
-        ModifiableConfiguration config = getBerkeleyJEConfiguration();
-        //Add index
-        config.set(INDEX_BACKEND,"elasticsearch",INDEX);
-        config.set(LOCAL_MODE,true,INDEX);
-        config.set(CLIENT_ONLY,false,INDEX);
-        config.set(INDEX_DIRECTORY, StorageSetup.getHomeDir("es"), INDEX);
-        return config.getConfiguration();
-
+        return esr.setElasticsearchConfiguration(getBerkeleyJEConfiguration(), INDEX)
+            .set(GraphDatabaseConfiguration.INDEX_MAX_RESULT_SET_SIZE, 3, INDEX)
+            .getConfiguration();
     }
 
     @Override

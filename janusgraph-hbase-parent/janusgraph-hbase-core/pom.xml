@@ -3,7 +3,7 @@
     <parent>
         <groupId>org.janusgraph</groupId>
         <artifactId>janusgraph-hbase-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.3.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>janusgraph-hbase-core</artifactId>
@@ -13,13 +13,13 @@
     <properties>
         <hadoop.profile>2.0</hadoop.profile>
         <jruby.version>1.6.8</jruby.version>
-        <top.level.basedir>${project.parent.parent.basedir}</top.level.basedir>
+        <top.level.basedir>${basedir}/../..</top.level.basedir>
     </properties>
     
     <dependencies>
         <dependency>
             <groupId>org.apache.hbase</groupId>
-            <artifactId>hbase-client</artifactId>
+            <artifactId>hbase-shaded-client</artifactId>
             <version>${hbase.version}</version>
             <optional>true</optional>
             <exclusions>
@@ -39,7 +39,7 @@
         </dependency>
         <dependency>
             <groupId>org.apache.hbase</groupId>
-            <artifactId>hbase-server</artifactId>
+            <artifactId>hbase-shaded-server</artifactId>
             <version>${hbase.version}</version>
             <optional>true</optional>
             <exclusions>

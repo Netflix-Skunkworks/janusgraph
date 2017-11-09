@@ -100,8 +100,6 @@ public class InMemoryGraphTest extends JanusGraphTest {
     public void testIndexUpdateSyncWithMultipleInstances() {}
 
     @Override
-    protected boolean isLockingOptimistic() {
-        return true;
-    }
+    public void testClearStorage() {}
 
 }

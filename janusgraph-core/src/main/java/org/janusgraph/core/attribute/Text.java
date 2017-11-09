@@ -14,17 +14,21 @@
 
 package org.janusgraph.core.attribute;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Sets;
-import org.janusgraph.graphdb.query.JanusGraphPredicate;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
+
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.text.similarity.LevenshteinDistance;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.janusgraph.graphdb.query.JanusGraphPredicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 
 /**
  * Comparison relations for text objects. These comparisons are based on a tokenized representation
@@ -66,6 +70,10 @@ public enum Text implements JanusGraphPredicate {
             else if (condition instanceof String && StringUtils.isNotBlank((String) condition)) return true;
             else return false;
         }
+        @Override
+        public String toString() {
+            return "textContains";
+        }
     },
 
     /**
@@ -90,6 +98,11 @@ public enum Text implements JanusGraphPredicate {
         @Override
         public boolean isValidCondition(Object condition) {
             return condition != null && condition instanceof String;
+        }
+
+        @Override
+        public String toString() {
+            return "textContainsPrefix";
         }
 
     },
@@ -118,6 +131,11 @@ public enum Text implements JanusGraphPredicate {
             return condition != null && condition instanceof String && StringUtils.isNotBlank(condition.toString());
         }
 
+        @Override
+        public String toString() {
+            return "textContainsRegex";
+        }
+
     },
 
     /**
@@ -139,6 +157,11 @@ public enum Text implements JanusGraphPredicate {
         @Override
         public boolean isValidCondition(Object condition) {
             return condition != null && condition instanceof String;
+        }
+
+        @Override
+        public String toString() {
+            return "textPrefix";
         }
 
     },
@@ -163,7 +186,102 @@ public enum Text implements JanusGraphPredicate {
             return condition != null && condition instanceof String && StringUtils.isNotBlank(condition.toString());
         }
 
+        @Override
+        public String toString() {
+            return "textRegex";
+        }
+
+    }, 
+    
+    /**
+     * Whether the text is at X Lenvenstein of a token (case sensitive)
+     * with X=:
+     * - 0 for strings of one or two characters
+     * - 1 for strings of three, four or five characters
+     * - 2 for strings of more than five characters
+     */
+    FUZZY {
+        @Override
+        public boolean test(Object value, Object condition) {
+            this.preevaluate(value, condition);
+            if (value == null)
+                return false;
+            return evaluateRaw(value.toString(), (String) condition);
+        }
+
+        @Override
+        public boolean evaluateRaw(String value, String term) {
+            return isFuzzy(term.trim(),value.trim());
+        }
+
+        @Override
+        public boolean isValidCondition(Object condition) {
+            return condition != null && condition instanceof String && StringUtils.isNotBlank(condition.toString());
+        }
+        @Override
+        public String toString() {
+            return "textFuzzy";
+        }
+
+    }, 
+    
+    /**
+     * Whether the text contains a token is at X Lenvenstein of a token (case insensitive)
+     * with X=:
+     * - 0 for strings of one or two characters
+     * - 1 for strings of three, four or five characters
+     * - 2 for strings of more than five characters
+     */
+    CONTAINS_FUZZY {
+        @Override
+        public boolean test(Object value, Object condition) {
+            this.preevaluate(value, condition);
+            if (value == null)
+                return false;
+            return evaluateRaw(value.toString(), (String) condition);
+        }
+
+        @Override
+        public boolean evaluateRaw(String value, String term) {
+            for (String token : tokenize(value.toLowerCase())) {
+                if (isFuzzy(term.toLowerCase(), token)) return true;
+            }
+            return false;
+        }
+
+        @Override
+        public boolean isValidCondition(Object condition) {
+            return condition != null && condition instanceof String && StringUtils.isNotBlank(condition.toString());
+        }
+        @Override
+        public String toString() {
+            return "textContainsFuzzy";
+        }
+
     };
+
+    /**
+     * Whether {@code term} is at X Lenvenstein of a {@code value} 
+     * with X=:
+     * - 0 for strings of one or two characters
+     * - 1 for strings of three, four or five characters
+     * - 2 for strings of more than five characters
+     * @param value
+     * @param term
+     * @return true if {@code term} is similar to {@code value} 
+     */
+    private static boolean isFuzzy(String term, String value){
+        int distance;
+        term = term.trim();
+        if (term.length() < 3) {
+            distance = 0;
+        } else if (term.length() < 6) {
+            distance = 1;
+        } else {
+            distance = 2;
+        }
+        return LevenshteinDistance.getDefaultInstance().apply(value, term)<=distance;
+    }
 
     private static final Logger log = LoggerFactory.getLogger(Text.class);
 
@@ -212,6 +330,9 @@ public enum Text implements JanusGraphPredicate {
 
     //////////////// statics
 
+    public final static Set<Text> HAS_CONTAINS = Collections
+            .unmodifiableSet(EnumSet.of(CONTAINS, CONTAINS_PREFIX, CONTAINS_REGEX, CONTAINS_FUZZY));
+
     public static <V> P<V> textContains(final V value) {
         return new P(Text.CONTAINS, value);
     }
@@ -226,5 +347,11 @@ public enum Text implements JanusGraphPredicate {
     }
     public static <V> P<V> textRegex(final V value) {
         return new P(Text.REGEX, value);
+    }
+    public static <V> P<V> textContainsFuzzy(final V value) {
+        return new P(Text.CONTAINS_FUZZY, value);
+    }
+    public static <V> P<V> textFuzzy(final V value) {
+        return new P(Text.FUZZY, value);
     }
 }

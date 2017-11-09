@@ -301,7 +301,7 @@ public class FulgoraGraphComputer implements JanusGraphComputer {
                         new Function<Map<String, Object>, Map<String, Object>>() {
                             @Nullable
                             @Override
-                            public Map<String, Object> apply(@Nullable Map<String, Object> o) {
+                            public Map<String, Object> apply(final Map<String, Object> o) {
                                 return Maps.filterKeys(o, s -> !VertexProgramHelper.isTransientVertexComputeKey(s, vertexProgram.getVertexComputeKeys()));
                             }
                         });
@@ -331,7 +331,12 @@ public class FulgoraGraphComputer implements JanusGraphComputer {
                     for (Map.Entry<Long, Map<String, Object>> vprop : mutatedProperties.entrySet()) {
                         Vertex v = resultgraph.vertices(vprop.getKey()).next();
                         for (Map.Entry<String, Object> prop : vprop.getValue().entrySet()) {
-                            v.property(VertexProperty.Cardinality.single, prop.getKey(), prop.getValue());
+                            if (prop.getValue() instanceof List) {
+                                ((List) prop.getValue())
+                                    .forEach(value -> v.property(VertexProperty.Cardinality.list, prop.getKey(), value));
+                            } else {
+                                v.property(VertexProperty.Cardinality.single, prop.getKey(), prop.getValue());
+                            }
                         }
                     }
                 }
@@ -361,6 +366,9 @@ public class FulgoraGraphComputer implements JanusGraphComputer {
             try {
                 for (Map.Entry<Long, Map<String, Object>> vprop : properties) {
                     Vertex v = tx.getVertex(vprop.getKey());
+                    if (v == null) {
+                        continue;
+                    }
                     for (Map.Entry<String, Object> prop : vprop.getValue().entrySet()) {
                         v.property(VertexProperty.Cardinality.single, prop.getKey(), prop.getValue());
                     }

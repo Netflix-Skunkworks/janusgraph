@@ -1,11 +1,9 @@
 [[search-predicates]]
-Search Predicates and Data Types
---------------------------------
+== Search Predicates and Data Types
 
 This page lists all of the comparison predicates that JanusGraph supports in global graph search and local traversals.
 
-Compare Predicate
-~~~~~~~~~~~~~~~~~
+=== Compare Predicate
 
 The `Compare` enum specifies the following comparison predicates used for index query construction and used in the examples above:
 
@@ -16,8 +14,7 @@ The `Compare` enum specifies the following comparison predicates used for index 
 * `lt` (less than)
 * `lte` (less than or equal)
 
-Text Predicate
-~~~~~~~~~~~~~~
+=== Text Predicate
 
 The `Text` enum specifies the <<text-search, search operator>> used to query for matching text or string values.  We differentiate between two types of predicates:
 
@@ -25,20 +22,26 @@ The `Text` enum specifies the <<text-search, search operator>> used to query for
 ** `textContains`: is true if (at least) one word inside the text string matches the query string
 ** `textContainsPrefix`: is true if (at least) one word inside the text string begins with the query string
 ** `textContainsRegex`: is true if (at least) one word inside the text string matches the given regular expression
+** `textContainsFuzzy`: is true if (at least) one word inside the text string is similar to the query String (based on Levenshtein edit distance)
 * String search predicates which match against the entire string value
 ** `textPrefix`: if the string value starts with the given query string
 ** `textRegex`: if the string value matches the given regular expression in its entirety
+** `textFuzzy`: if the string value is similar to the given query string (based on Levenshtein edit distance)
 
 See <<text-search>> for more information about full-text and string search.
 
-Geo Predicate
-~~~~~~~~~~~~~
+=== Geo Predicate
 
-The `Geo` enum specifies the geo-location predicate `geoWithin` which holds true if one geometric object contains the other.
+The `Geo` enum specifies geo-location predicates.
 
+* `geoIntersect` which holds true if the two geometric objects have at least one point in common (opposite of `geoDisjoint`).
+* `geoWithin` which holds true if one geometric object contains the other.
+* `geoDisjoint` which holds true if the two geometric objects have no points in common (opposite of `geoIntersect`).
+* `geoContains` which holds true if one geometric object is contained by the other.
 
-Query Examples
-~~~~~~~~~~~~~~
+See <<geo-search>> for more information about geo search.
+
+=== Query Examples
 
 The following query examples demonstrate some of the predicates on the tutorial graph.
 
@@ -61,13 +64,14 @@ g.E().has("reason", textContains("loves")).has("reason", textContains("breezes")
 g.E().has("reason", textContainsPrefix("lov"))
 // or all edges which contain words that match the regular expression "br[ez]*s" in their entirety
 g.E().has("reason", textContainsRegex("br[ez]*s"))
+// or all edges which contain words similar to "love"
+g.E().has("reason", textContainsFuzzy("love"))
 // 5) Find all vertices older than a thousand years and named "saturn"
 g.V().has("age", gt(1000)).has("name", "saturn")
 
 
 [[mixeddatatypes]]
-Data Type Support
-~~~~~~~~~~~~~~~~~
+=== Data Type Support
 
 While JanusGraph's composite indexes support any data type that can be stored in JanusGraph, the mixed indexes are limited to the following data types.
 
@@ -77,19 +81,22 @@ While JanusGraph's composite indexes support any data type that can be stored in
  * Long
  * Float
  * Double
- * Decimal
- * Precision
  * String
  * Geoshape
  * Date
  * Instant
+ * UUID
  
 Additional data types will be supported in the future.
 
-Geoshape Data Type
-~~~~~~~~~~~~~~~~~~
-The Geoshape data type supports representing a point, circle or box. However all index backends currently only support indexing points.
+[[geoshape]]
+=== Geoshape Data Type
+The Geoshape data type supports representing a point, circle, box, line, polygon, multi-point, multi-line and multi-polygon. Index backends currently support indexing points, circles, boxes, lines, polygons, multi-point, multi-line, multi-polygon and geometry collection.
 Geospatial index lookups are only supported via mixed indexes.
+
+.Note:
+[NOTE]
+The Java Topology Suite (JTS) is currently required to use polygon, multi-polygon and geometry collection with polygons. JTS is not included in JanusGraph distributions by default due to its LGPL license. Users must download the JTS JAR file separately and include it in the classpath when full geometry support is required.
 
 To construct a Geoshape use the following methods:
 
@@ -100,8 +107,29 @@ Geoshape.point(37.97, 23.72)
 Geoshape.circle(37.97, 23.72, 50)
 //SW lat, SW lng, NE lat, NE lng
 Geoshape.box(37.97, 23.72, 38.97, 24.72)
+//WKT (requires JTS for polygon geometries)
+Geoshape.fromWkt("POLYGON ((35.4 48.9, 35.6 48.9, 35.6 49.1, 35.4 49.1, 35.4 48.9))")
+//MultiPoint
+Geoshape.geoshape(Geoshape.getShapeFactory().multiPoint().pointXY(60.0, 60.0).pointXY(120.0, 60.0)
+  .build())
+//MultiLine
+Geoshape.geoshape(Geoshape.getShapeFactory().multiLineString()
+  .add(Geoshape.getShapeFactory().lineString().pointXY(59.0, 60.0).pointXY(61.0, 60.0))
+  .add(Geoshape.getShapeFactory().lineString().pointXY(119.0, 60.0).pointXY(121.0, 60.0)).build())
+//MultiPolygon (requires JTS)
+Geoshape.geoshape(Geoshape.getShapeFactory().multiPolygon()
+  .add(Geoshape.getShapeFactory().polygon().pointXY(59.0, 59.0).pointXY(61.0, 59.0)
+    .pointXY(61.0, 61.0).pointXY(59.0, 61.0).pointXY(59.0, 59.0))
+  .add(Geoshape.getShapeFactory().polygon().pointXY(119.0, 59.0).pointXY(121.0, 59.0)
+    .pointXY(121.0, 61.0).pointXY(119.0, 61.0).pointXY(119.0, 59.0)).build())
+//GeometryCollection (may requires JTS)
+Geoshape.geoshape(Geoshape.getGeometryCollectionBuilder()
+  .add(Geoshape.getShapeFactory().pointXY(60.0, 60.0))
+  .add(Geoshape.getShapeFactory().lineString().pointXY(119.0, 60.0).pointXY(121.0, 60.0).build())
+  .add(Geoshape.getShapeFactory().polygon().pointXY(119.0, 59.0).pointXY(121.0, 59.0)
+    .pointXY(121.0, 61.0).pointXY(119.0, 61.0).pointXY(119.0, 59.0)).build())
 
-In addition when importing a graph via GraphSON Point may be represented by:
+In addition, when importing a graph via GraphSON the geometry may be represented by GeoJSON:
 [source, java]
  //string
 "37.97, 23.72"
@@ -124,11 +152,10 @@ In addition when importing a graph via GraphSON Point may be represented by:
   "coordinates": [125.6, 10.1]
 }
 
-link:http://geojson.org/[GeoJSON] may be specified as Point, Circle or Polygon. However polygons must form a box.
+link:http://geojson.org/[GeoJSON] may be specified as Point, Circle, LineString or Polygon. Polygons must be closed.
 Note that unlike the JanusGraph API GeoJSON specifies coordinates as lng lat.
 
-Collections
-~~~~~~~~~~~
+=== Collections
 If you are using <<elasticsearch, Elasticsearch>> then you can index properties with SET and LIST cardinality.
 For instance:
 

@@ -40,7 +40,7 @@ public class ConfigurationLint {
             System.exit(1);
         }
 
-        log.info("Checking " + args[0]);
+        log.info("Checking " + LoggerUtil.sanitizeAndLaunder(args[0]));
         Status s = validate(args[0]);
         if (0 == s.errors) {
             log.info(s.toString());
@@ -52,9 +52,9 @@ public class ConfigurationLint {
 
     public static Status validate(String filename) throws IOException {
         Properties p = new Properties();
-        FileInputStream fis = new FileInputStream(filename);
-        p.load(fis);
-        fis.close();
+        try(FileInputStream fis = new FileInputStream(filename)) {
+            p.load(fis);
+        }
 
         final PropertiesConfiguration apc;
         try {

@@ -14,6 +14,10 @@
 
 package org.janusgraph.graphdb.tinkerpop.optimize;
 
+import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.util.AndP;
 import org.janusgraph.core.Cardinality;
 import org.janusgraph.core.PropertyKey;
 import org.janusgraph.core.JanusGraphTransaction;
@@ -33,34 +37,43 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 
 import org.javatuples.Pair;
 
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
  */
 public interface HasStepFolder<S, E> extends Step<S, E> {
 
-    public void addAll(Iterable<HasContainer> hasContainers);
+    void addAll(Iterable<HasContainer> hasContainers);
 
-    public void orderBy(String key, Order order);
+    void orderBy(String key, Order order);
 
-    public void setLimit(int limit);
+    void setLimit(int limit);
 
-    public int getLimit();
+    int getLimit();
 
-    public static boolean validJanusGraphHas(HasContainer has) {
-        return JanusGraphPredicate.Converter.supports(has.getBiPredicate());
+    static boolean validJanusGraphHas(HasContainer has) {
+        if (has.getPredicate() instanceof AndP) {
+            final List<? extends P<?>> predicates = ((AndP<?>) has.getPredicate()).getPredicates();
+            return !predicates.stream().filter(p->!validJanusGraphHas(new HasContainer(has.getKey(), p))).findAny().isPresent();
+        } else {
+            return JanusGraphPredicate.Converter.supports(has.getBiPredicate());
+        }
     }
 
-    public static boolean validJanusGraphHas(Iterable<HasContainer> has) {
+    static boolean validJanusGraphHas(Iterable<HasContainer> has) {
         for (HasContainer h : has) {
             if (!validJanusGraphHas(h)) return false;
         }
         return true;
     }
 
-    public static boolean validJanusGraphOrder(OrderGlobalStep ostep, Traversal rootTraversal,
+    static boolean validJanusGraphOrder(OrderGlobalStep ostep, Traversal rootTraversal,
                                           boolean isVertexOrder) {
         for (Pair<Traversal.Admin<Object, Comparable>, Comparator<Comparable>> comp : (List<Pair<Traversal.Admin<Object, Comparable>, Comparator<Comparable>>>) ostep.getComparators()) {
             if (!(comp.getValue1() instanceof ElementValueComparator)) return false;
@@ -76,8 +89,42 @@ public interface HasStepFolder<S, E> extends Step<S, E> {
         return true;
     }
 
-    public static void foldInHasContainer(final HasStepFolder janusgraphStep, final Traversal.Admin<?, ?> traversal) {
+    static void foldInIds(final HasStepFolder janusgraphStep, final Traversal.Admin<?, ?> traversal) {
+        Step<?, ?> currentStep = janusgraphStep.getNextStep();
+        while (true) {
+            if (currentStep instanceof HasContainerHolder) {
+                Set<Object> ids = new HashSet<>();
+                final GraphStep graphStep = (GraphStep) janusgraphStep;
+                for (final HasContainer hasContainer : ((HasContainerHolder) currentStep).getHasContainers()) {
+                    if (GraphStep.processHasContainerIds(graphStep, hasContainer)) {
+                        currentStep.getLabels().forEach(janusgraphStep::addLabel);
+                        if (!ids.isEmpty()) {
+                            // intersect ids (shouldn't this be handled in TP GraphStep.processHasContainerIds?)
+                            ids.stream().filter(id -> Arrays.stream(graphStep.getIds()).noneMatch(id::equals))
+                                .collect(Collectors.toSet()).forEach(ids::remove);
+                            if (ids.isEmpty()) break;
+                        } else {
+                            Arrays.stream(graphStep.getIds()).forEach(ids::add);
+                        }
+                    }
+                    // clear ids to allow folding in ids from next HasContainer if relevant
+                    graphStep.clearIds();
+                }
+                graphStep.addIds(ids);
+                if (!ids.isEmpty()) traversal.removeStep(currentStep);
+            }
+            else if (currentStep instanceof IdentityStep) {
+                // do nothing, has no impact
+            } else if (currentStep instanceof NoOpBarrierStep) {
+                // do nothing, has no impact
+            } else {
+                break;
+            }
+            currentStep = currentStep.getNextStep();
+        }
+    }
 
+    static void foldInHasContainer(final HasStepFolder janusgraphStep, final Traversal.Admin<?, ?> traversal) {
         Step<?, ?> currentStep = janusgraphStep.getNextStep();
         while (true) {
             if (currentStep instanceof HasContainerHolder) {
@@ -88,6 +135,8 @@ public interface HasStepFolder<S, E> extends Step<S, E> {
                     traversal.removeStep(currentStep);
                 }
             } else if (currentStep instanceof IdentityStep) {
+                // do nothing, has no impact
+            } else if (currentStep instanceof NoOpBarrierStep) {
                 // do nothing, has no impact
             } else {
                 break;
@@ -105,7 +154,7 @@ public interface HasStepFolder<S, E> extends Step<S, E> {
 //        } else return false;
 //    }
 
-    public static void foldInOrder(final HasStepFolder janusgraphStep, final Traversal.Admin<?, ?> traversal,
+    static void foldInOrder(final HasStepFolder janusgraphStep, final Traversal.Admin<?, ?> traversal,
                                    final Traversal<?, ?> rootTraversal, boolean isVertexOrder) {
         Step<?, ?> currentStep = janusgraphStep.getNextStep();
         OrderGlobalStep<?, ?> lastOrder = null;
@@ -120,13 +169,15 @@ public interface HasStepFolder<S, E> extends Step<S, E> {
                 // do nothing, can be skipped
             } else if (currentStep instanceof HasStep) {
                 // do nothing, can be skipped
+            } else if (currentStep instanceof NoOpBarrierStep) {
+                // do nothing, can be skipped
             } else {
                 break;
             }
             currentStep = currentStep.getNextStep();
         }
 
-        if (lastOrder != null && lastOrder instanceof OrderGlobalStep) {
+        if (lastOrder != null) {
             if (validJanusGraphOrder(lastOrder, rootTraversal, isVertexOrder)) {
                 //Add orders to HasStepFolder
                 for (Pair<Traversal.Admin<Object, Comparable>, Comparator<Comparable>> comp : (List<Pair<Traversal.Admin<Object, Comparable>, Comparator<Comparable>>>) ((OrderGlobalStep) lastOrder).getComparators()) {
@@ -139,7 +190,18 @@ public interface HasStepFolder<S, E> extends Step<S, E> {
         }
     }
 
-    public static class OrderEntry {
+    static void splitAndP(final List<HasContainer> hasContainers, final Iterable<HasContainer> has) {
+        has.forEach(hasContainer -> {
+            if (hasContainer.getPredicate() instanceof AndP) {
+                for (final P<?> predicate : ((AndP<?>) hasContainer.getPredicate()).getPredicates()) {
+                    hasContainers.add(new HasContainer(hasContainer.getKey(), predicate));
+                }
+            } else
+                hasContainers.add(hasContainer);
+        });
+    }
+
+    class OrderEntry {
 
         public final String key;
         public final Order order;
@@ -150,7 +212,7 @@ public interface HasStepFolder<S, E> extends Step<S, E> {
         }
     }
 
-    public static <E extends Ranging> void foldInRange(final HasStepFolder janusgraphStep, final Traversal.Admin<?, ?> traversal) {
+    static <E extends Ranging> void foldInRange(final HasStepFolder janusgraphStep, final Traversal.Admin<?, ?> traversal) {
         Step<?, ?> nextStep = JanusGraphTraversalUtil.getNextNonIdentityStep(janusgraphStep);
 
         if (nextStep instanceof RangeGlobalStep) {

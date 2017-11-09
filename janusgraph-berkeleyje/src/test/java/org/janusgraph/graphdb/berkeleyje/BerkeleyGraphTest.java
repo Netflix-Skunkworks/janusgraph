@@ -16,7 +16,9 @@ package org.janusgraph.graphdb.berkeleyje;
 
 import org.janusgraph.core.JanusGraphException;
 import org.janusgraph.core.util.JanusGraphCleanup;
+import org.janusgraph.diskstorage.Backend;
 import org.janusgraph.diskstorage.configuration.ConfigOption;
+import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -63,6 +65,24 @@ public class BerkeleyGraphTest extends JanusGraphTest {
     }
 
     @Override
+    public void testClearStorage() throws Exception {
+        tearDown();
+        config.set(ConfigElement.getPath(GraphDatabaseConfiguration.DROP_ON_CLEAR), true);
+        Backend backend = getBackend(config, false);
+        assertTrue("graph should exist before clearing storage", backend.getStoreManager().exists());
+        clearGraph(config);
+        backend.close();
+        backend = getBackend(config, false);
+        assertFalse("graph should not exist after clearing storage", backend.getStoreManager().exists());
+        backend.close();
+    }
+
+    @Test
+    public void testVertexCentricQuerySmall() {
+        testVertexCentricQuery(1450 /*noVertices*/);
+    }
+
+    @Override
     public void testConsistencyEnforcement() {
         // Check that getConfiguration() explicitly set serializable isolation
         // This could be enforced with a JUnit assertion instead of a Precondition,
@@ -71,11 +91,6 @@ public class BerkeleyGraphTest extends JanusGraphTest {
         IsolationLevel effective = ConfigOption.getEnumValue(config.get(ConfigElement.getPath(BerkeleyJEStoreManager.ISOLATION_LEVEL), String.class),IsolationLevel.class);
         Preconditions.checkState(IsolationLevel.SERIALIZABLE.equals(effective));
         super.testConsistencyEnforcement();
-    }
-
-    @Override
-    protected boolean isLockingOptimistic() {
-        return false;
     }
 
     @Override

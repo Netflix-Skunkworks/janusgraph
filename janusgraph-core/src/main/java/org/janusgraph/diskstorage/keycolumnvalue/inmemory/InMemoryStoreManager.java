@@ -53,6 +53,7 @@ public class InMemoryStoreManager implements KeyColumnValueStoreManager {
             .unorderedScan(true)
             .keyOrdered(true)
             .persists(false)
+            .optimisticLocking(true)
             .keyConsistent(GraphDatabaseConfiguration.buildGraphConfiguration())
             .build();
 
@@ -87,6 +88,12 @@ public class InMemoryStoreManager implements KeyColumnValueStoreManager {
         for (InMemoryKeyColumnValueStore store : stores.values()) {
             store.clear();
         }
+        stores.clear();
+    }
+
+    @Override
+    public boolean exists() throws BackendException {
+        return !stores.isEmpty();
     }
 
     @Override

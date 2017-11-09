@@ -1,8 +1,10 @@
+dist: trusty
 language: java
-sudo: false
-
+sudo: true
+services:
+  - docker
 jdk:
-  - oraclejdk8
+  - openjdk8
 
 cache:
   directories:
@@ -13,78 +15,106 @@ env:
     # This is the encrypted COVERITY_SCAN_TOKEN, created via the
     # `travis encrypt` command using the project repo's public key.
     - secure: "v5ixqTeb74y0vRuPcDbe3C28GDDYvqyEXA2dt+9UVU6GG7WpnmpkBf05gI1dIhp51lBhwx9WSlFBtzho+KdCBmNY/CzBRhVHe/lCQYK9Hb6uGPvuwBvC0WjJgJXsVrLFjppeRhcf+OAweVQ3uw2RPMDRvKIVMUcO1BTFjjJl6REJXNUdzGS57MtH2mmRyOEz250EwgqUELZvcOytG7fNrjMJKVK2nSsoxi0BqZIpItTWPWWeQ1wi1FplJ18A2qtD+MPfAGNSB+/a+r0Av+VCT2eGl06ZyZAzP3q/vG5IYjQ3AJsSPqcZUt4ms+2us1+kwuzXIILjzZmcfImu29+y/thndU5E5b2v+nZ4H69CUCc5OmKW2RwozLNmBIUhO0n+35va/J7FiPIqm3pwxCz5vWA3YTHDADxnIYe7+9uY/+dOK/AvP5fyu7u07vuF3liKNBdrX7ylP3kYc7FXGmYl8wCZv31iy1yTtndQ9qKef7bo8lM9Cdh39KyowrygH+Um7pr9gqf2S9jn99nQ3bib32fBWgBkLpJRwhZYHPUupZjZfgu/9woby0DuriuHZKMqZd7QUawYz6wXGlhzu78x5Tohlj1pGBwHYdcJ/Tm3PiEpyH4aYQLffkjGHJAcCW5tO8QbB0qrLYWC8xVMWuFz1TpSBRXOqVYdBfIa2UZDtOU="
+    - COVERITY_BRANCH_NAME="coverity_scan"
+    - COVERITY_EMAIL="sjudeng@gmail.com"
+    # Default Elasticsearch heap size can be too large for Travis
+    - ES_JAVA_OPTS="-Xms256m -Xmx512m"
 
   matrix:
-    - MODULE='berkeleyje'
-    - MODULE='cassandra'
-    - MODULE='es' ARGS='-DthreadCount=1'
+    # sort modules by test time with quickest modules first
     - MODULE='hadoop-parent/janusgraph-hadoop-2'
-    - MODULE='hbase-parent/janusgraph-hbase-098'
-    - MODULE='hbase-parent/janusgraph-hbase-10'
-    - MODULE='lucene' ARGS='-DthreadCount=1'
-    - MODULE='solr' ARGS='-DthreadCount=1'
+    - MODULE='lucene'
+    - MODULE='solr' ARGS='-Pdocker,solr7'
+    - MODULE='solr' ARGS='-Pdocker,solr6'
+    - MODULE='solr' ARGS='-Pdocker,solr5'
+    - MODULE='es' ARGS='-Pelasticsearch6'
+    - MODULE='es' ARGS='-Pelasticsearch5'
+    - MODULE='es' ARGS='-Pelasticsearch2'
+    - MODULE='es' ARGS='-Pelasticsearch1,es-docker'
+    - MODULE='berkeleyje'
     - MODULE='test'
+    - MODULE='cassandra' ARGS='-Dtest=**/diskstorage/cassandra/thrift/* -Dtest.skip.unordered=true -Dtest.skip.ssl=true -Dtest.skip.serial=true'
+    - MODULE='cassandra' ARGS='-Dtest=**/diskstorage/cassandra/thrift/* -Dtest.skip.ordered=true -Dtest.skip.ssl=true -Dtest.skip.serial=true'
+    - MODULE='cassandra' ARGS='-Dtest=**/diskstorage/cassandra/thrift/* -Dtest.skip.unordered=true -Dtest.skip.ordered=true'
+    - MODULE='cassandra' ARGS='-Dtest=**/graphdb/thrift/* -Dtest.skip.unordered=true -Dtest.skip.ssl=true -Dtest.skip.serial=true'
+    - MODULE='cassandra' ARGS='-Dtest=**/graphdb/thrift/* -Dtest.skip.ordered=true -Dtest.skip.ssl=true -Dtest.skip.serial=true'
+    - MODULE='cassandra' ARGS='-Dtest=**/graphdb/thrift/* -Dtest.skip.unordered=true -Dtest.skip.ordered=true'
+    - MODULE='cassandra' ARGS='-Dtest=**/diskstorage/cassandra/astyanax/* -Dtest.skip.unordered=true -Dtest.skip.ssl=true -Dtest.skip.serial=true'
+    - MODULE='cassandra' ARGS='-Dtest=**/diskstorage/cassandra/astyanax/* -Dtest.skip.ordered=true -Dtest.skip.ssl=true -Dtest.skip.serial=true'
+    - MODULE='cassandra' ARGS='-Dtest=**/diskstorage/cassandra/astyanax/* -Dtest.skip.unordered=true -Dtest.skip.ordered=true'
+    - MODULE='cassandra' ARGS='-Dtest=**/graphdb/astyanax/*'
+    - MODULE='cassandra' ARGS='-Dtest=**/diskstorage/cassandra/embedded/*'
+    - MODULE='cassandra' ARGS='-Dtest=***/cassandra/*,*/graphdb/embedded/*'
+    - MODULE='hbase-parent/janusgraph-hbase-10' ARGS='-Dtest=**/diskstorage/hbase/*'
+    - MODULE='hbase-parent/janusgraph-hbase-10' ARGS='-Dtest=**/graphdb/hbase/*'
+    - MODULE='hbase-parent/janusgraph-hbase-098' ARGS='-Dtest=**/diskstorage/hbase/*'
+    - MODULE='hbase-parent/janusgraph-hbase-098' ARGS='-Dtest=**/graphdb/hbase/*'
+    - MODULE='cql' ARGS='-Dtest=**/diskstorage/cql/* -Dtest.skip.murmur=true'
+    - MODULE='cql' ARGS='-Dtest=**/diskstorage/cql/* -Dtest.skip.byteorderedpartitioner=true -Dtest.skip.murmur-serial=true -Dtest.skip.murmur-ssl=true'
+    - MODULE='cql' ARGS='-Dtest=**/graphdb/cql/* -Dtest.skip.murmur=true'
+    - MODULE='cql' ARGS='-Dtest=**/graphdb/cql/* -Dtest.skip.byteorderedpartitioner=true -Dtest.skip.murmur-serial=true -Dtest.skip.murmur-ssl=true'
+    - COVERITY_ONLY=true
 
 matrix:
+  fast_finish: true
   # https://docs.travis-ci.com/user/customizing-the-build#Rows-that-are-Allowed-to-Fail
   allow_failures:
-    # Non-deterministic: can pass or fail, regardless of any relevant changes.
-    # https://travis-ci.org/JanusGraph/janusgraph/jobs/198165185
-    - env: MODULE='berkeleyje'
+    # Elasticsearch 1.x tests can fail non-deterministically
+    - env: MODULE='es' ARGS='-Pelasticsearch1,es-docker'
+    # Can fail due to timeout (runs longer than 50min)
+    - env: MODULE='hbase-parent/janusgraph-hbase-098' ARGS='-Dtest=**/diskstorage/hbase/*'
+    - env: MODULE='hbase-parent/janusgraph-hbase-098' ARGS='-Dtest=**/graphdb/hbase/*'
+    - env: MODULE='cassandra' ARGS='-Dtest=**/diskstorage/cassandra/thrift/* -Dtest.skip.unordered=true -Dtest.skip.ssl=true -Dtest.skip.serial=true'
+    - env: MODULE='cassandra' ARGS='-Dtest=**/diskstorage/cassandra/thrift/* -Dtest.skip.ordered=true -Dtest.skip.ssl=true -Dtest.skip.serial=true'
+    - env: MODULE='cassandra' ARGS='-Dtest=**/diskstorage/cassandra/thrift/* -Dtest.skip.unordered=true -Dtest.skip.ordered=true'
+    - env: MODULE='cassandra' ARGS='-Dtest=**/graphdb/thrift/* -Dtest.skip.unordered=true -Dtest.skip.ssl=true -Dtest.skip.serial=true'
+    - env: MODULE='cassandra' ARGS='-Dtest=**/graphdb/thrift/* -Dtest.skip.ordered=true -Dtest.skip.ssl=true -Dtest.skip.serial=true'
+    - env: MODULE='cassandra' ARGS='-Dtest=**/graphdb/thrift/* -Dtest.skip.unordered=true -Dtest.skip.ordered=true'
+    - env: MODULE='cql' ARGS='-Dtest=**/diskstorage/cql/* -Dtest.skip.murmur=true'
+    - env: MODULE='cql' ARGS='-Dtest=**/diskstorage/cql/* -Dtest.skip.byteorderedpartitioner=true -Dtest.skip.murmur-serial=true -Dtest.skip.murmur-ssl=true'
+    - env: MODULE='cql' ARGS='-Dtest=**/graphdb/cql/* -Dtest.skip.murmur=true'
+    - env: MODULE='cql' ARGS='-Dtest=**/graphdb/cql/* -Dtest.skip.byteorderedpartitioner=true -Dtest.skip.murmur-serial=true -Dtest.skip.murmur-ssl=true'
 
-    # Currently broken due to too many log statements (exceeds 4MB)
-    # https://travis-ci.org/JanusGraph/janusgraph/jobs/197472452
-    - env: MODULE='cassandra'
-
-    # Currently broken due to too many log statements (exceeds 4MB)
-    # https://travis-ci.org/JanusGraph/janusgraph/jobs/197472453
-    - env: MODULE='es' ARGS='-DthreadCount=1'
-
-    # Currently broken due to too many log statements (exceeds 4MB)
-    # https://travis-ci.org/JanusGraph/janusgraph/jobs/197672947
-    - env: MODULE='hadoop-parent/janusgraph-hadoop-2'
-
-    # Currently broken due to timeout (runs longer than 50min)
-    # https://travis-ci.org/JanusGraph/janusgraph/jobs/197672951
-    - env: MODULE='hbase-parent/janusgraph-hbase-098'
-
-    # Currently broken due to timeout (runs longer than 50min)
-    # https://travis-ci.org/JanusGraph/janusgraph/jobs/197672952
-    - env: MODULE='hbase-parent/janusgraph-hbase-10'
-
-    # Currently broken due to too many log statements (exceeds 4MB)
-    # https://travis-ci.org/JanusGraph/janusgraph/jobs/197427609
-    - env: MODULE='solr' ARGS='-DthreadCount=1'
-
-addons:
-  apt:
-    packages:
-      - oracle-java8-installer
-  coverity_scan:
-    # Coverity config parameters described in detail:
-    # https://scan.coverity.com/travis_ci
-    project:
-      name: "JanusGraph/janusgraph"
-      version: "0.1.0-SNAPSHOT"
-      description: "Scalable, distributed graph database"
-    notification_email: janusgraph-ci@googlegroups.com
-    # For more info on `travis_wait`, see the docs:
-    # https://docs.travis-ci.com/user/common-build-problems/#Build-times-out-because-no-output-was-received
-    build_command: "travis_wait mvn clean package -B -DskipTests=true"
-    branch_pattern: coverity_scan
-
-branches:
-  only:
-    - master
-    - coverity_scan
+install:
+  - if [ "${TRAVIS_BRANCH}" == "${COVERITY_BRANCH_NAME}" ] && ! [ -z "${COVERITY_ONLY:-}" ]; then
+      echo "Building all modules for Coverity analysis";
+      travis_retry travis_wait \
+          mvn install -DskipTests=true -Dmaven.javadoc.skip=true --batch-mode --show-version;
+    elif [ "${TRAVIS_BRANCH}" == "${COVERITY_BRANCH_NAME}" ] || ! [ -z "${COVERITY_ONLY:-}" ]; then
+      echo "Skipping module build on Coverity branch/job";
+    else
+      echo "Building janusgraph-${MODULE} and dependencies";
+      travis_retry travis_wait \
+          mvn install --projects janusgraph-${MODULE} --also-make \
+          -DskipTests=true -Dmaven.javadoc.skip=true --batch-mode --show-version;
+    fi
 
 script:
-  - if [[ "${COVERITY_SCAN_BRANCH}}" == 1 ]]; then
-      echo "Skipping build/test on 'coverity_scan' branch.";
-      exit 0;
+  - if [ "${TRAVIS_BRANCH}" == "${COVERITY_BRANCH_NAME}" ] && ! [ -z "${COVERITY_ONLY:-}" ]; then
+      echo "Building Docker image for Coverity analysis";
+      docker build -t janusgraph/analysis analysis;
+      echo "Running Coverity scan";
+      travis_wait 50 \
+        docker run --rm \
+            -v ${HOME}/.m2:/root/.m2 -v ${PWD}:/opt/janusgraph \
+            -e COVERITY_SCAN_TOKEN="${COVERITY_SCAN_TOKEN}" \
+            -e COVERITY_EMAIL="${COVERITY_EMAIL}" \
+            -i janusgraph/analysis;
+    elif [ "${TRAVIS_BRANCH}" == "${COVERITY_BRANCH_NAME}" ] || ! [ -z "${COVERITY_ONLY:-}" ]; then
+      echo "Skipping module tests on Coverity branch/job";
+    else
+      echo "Testing janusgraph-${MODULE}";
+      travis_retry travis_wait 50 \
+          mvn clean verify --projects janusgraph-${MODULE} -Pcoverage ${ARGS};
     fi
-  - mvn install -DskipTests=true -B -pl janusgraph-${MODULE} -am
-  - mvn verify -pl janusgraph-${MODULE} ${ARGS}
+
+after_success:
+  # Upload test coverage reports to Codecov
+  - if [ "${COVERITY_SCAN_BRANCH}" == 1 ] || [ -v COVERITY_ONLY ]; then
+      echo "Skipping test coverage report upload in Coverity branch/job";
+    else
+      bash <(curl -s https://codecov.io/bash);
+    fi
 
 # Syntax and more info: https://docs.travis-ci.com/user/notifications
 notifications:

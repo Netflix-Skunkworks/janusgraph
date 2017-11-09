@@ -3,7 +3,7 @@
     <parent>
         <groupId>org.janusgraph</groupId>
         <artifactId>janusgraph</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.3.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>janusgraph-hadoop-parent</artifactId>
@@ -14,6 +14,9 @@
     <properties>
         <top.level.basedir>${project.parent.basedir}</top.level.basedir>
         <skipCassandra>${skipTests}</skipCassandra>
+        <!-- Cassandra-3 testing requires an external Cassandra instance. 
+             See TESTING.md for more information. -->
+        <skipCassandra3>true</skipCassandra3>
         <skipHBase>${skipTests}</skipHBase>
         <skipPipeline>${skipTests}</skipPipeline>
     </properties>
@@ -75,6 +78,24 @@
                 <exclusion>
                     <groupId>net.jpountz.lz4</groupId>
                     <artifactId>lz4</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.eclipse.jetty.orbit</groupId>
+                    <artifactId>javax.servlet</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.module</groupId>
+                    <artifactId>jackson-module-scala_2.10</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-scala_2.10</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.scala-lang</groupId>
+                    <artifactId>scala-library</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -142,6 +163,12 @@
             <artifactId>sesame-rio-turtle</artifactId>
         </dependency>
 
+        <!-- Required for Cassandra-3 connectivity, see issue 172 -->
+        <dependency>
+            <groupId>com.datastax.cassandra</groupId>
+            <artifactId>cassandra-driver-core</artifactId>
+            <version>${cassandra-driver.version}</version>
+        </dependency>
         <!-- Logging backends.
              Enforce a classpath ordering constraint to ensure slf4j-log4j12
              binding appears on the classpath before logback-classic.
@@ -149,6 +176,7 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-log4j12</artifactId>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>
@@ -302,10 +330,29 @@
                                 <includes>
                                     <include>**/*Cassandra*IT.java</include>
                                 </includes>
+                                <excludes>
+                                    <exclude>**/*Cassandra3*IT.java</exclude>
+                                </excludes>
                                 <skipTests>${skipCassandra}</skipTests>
                                 <reuseForks>false</reuseForks>
                                 <summaryFile>target/failsafe-reports/failsafe-janusgraph-cassandra.xml</summaryFile>
-                                <argLine>-Dtest.cassandra.confdir=${project.build.directory}/cassandra/conf/localhost-murmur -Dtest.cassandra.datadir=${project.build.directory}/cassandra/data/localhost-murmur</argLine>
+                                <argLine>${default.test.jvm.opts} -Dtest.cassandra.confdir=${project.build.directory}/cassandra/conf/localhost-murmur -Dtest.cassandra.datadir=${project.build.directory}/cassandra/data/localhost-murmur</argLine>
+                            </configuration>
+                        </execution>
+                        <!-- Cassandra-3 testing requires an external Cassandra instance. 
+                        See TESTING.md for more information. -->
+                        <execution>
+                            <id>janusgraph-cassandra3-test</id>
+                            <goals>
+                                <goal>integration-test</goal>
+                            </goals>
+                            <configuration>
+                                <includes>
+                                    <include>**/*Cassandra3*IT.java</include>
+                                </includes>
+                                <skipTests>${skipCassandra3}</skipTests>
+                                <reuseForks>false</reuseForks>
+                                <summaryFile>target/failsafe-reports/failsafe-janusgraph-cassandra3.xml</summaryFile>
                             </configuration>
                         </execution>
                         <execution>
@@ -314,7 +361,7 @@
                                 <goal>integration-test</goal>
                             </goals>
                             <configuration>
-                                <argLine>-Dtest.hbase.parentdir=${top.level.basedir}/janusgraph-hbase-parent/</argLine>
+                                <argLine>${default.test.jvm.opts} -Dtest.hbase.parentdir=${top.level.basedir}/janusgraph-hbase-parent/</argLine>
                                 <includes>
                                     <include>**/*HBase*IT.java</include>
                                 </includes>

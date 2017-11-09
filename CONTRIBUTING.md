@@ -1,5 +1,9 @@
 # Contributing to JanusGraph
 
+Thank you for your intention to contribute to the JanusGraph project. As an open-source community, we highly appreciate external contributions to our project.
+
+To make the process smooth for the project *committers* (those who review and accept changes) and *contributors* (those who propose new changes via pull requests), there are a few rules to follow.
+
 ## Sign the CLA
 
 To sign the JanusGraph CLA, please follow [the
@@ -127,6 +131,19 @@ you've signed the contribution.
 > `git ci -v` will get you a diff of your commit while writing your commit
 > message.
 
+> Note: If this is a non-code change, e.g. documentation, add `[skip ci]` to the
+> PR subject line. This is to save CPU time on Travis CI, which lets us get more
+> build time for the other changes which actually change the code.
+>
+> The tests actually run twice for each PR:
+> 
+> * when the PR is submitted for review
+> * when the PR is merged to the base branch
+>
+> Having [skip ci] in the commit skips the first one, but the merge commit also
+> needs it, so having it in the title (first line of commit) helps it easily
+> propagate to both places.
+
 ## Push your changes to your GitHub fork
 
 ```bash
@@ -145,6 +162,8 @@ changes.
 Go to the [JanusGraph repository](https://github.com/JanusGraph/janusgraph) and
 you should see that it will offer you a chance to compare your recently-pushed
 branch to the current `master` of JanusGraph and subit a PR at the same time.
+
+Review the [PR check list](.github/PULL_REQUEST_TEMPLATE.md) for criteria for acceptable contributions.
 
 ## Code review
 

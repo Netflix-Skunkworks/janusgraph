@@ -3,7 +3,7 @@
     <parent>
         <groupId>org.janusgraph</groupId>
         <artifactId>janusgraph-hbase-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.3.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>janusgraph-hbase</artifactId>
@@ -11,7 +11,7 @@
     <url>http://janusgraph.org</url>
     
     <properties>
-        <top.level.basedir>${project.parent.parent.basedir}</top.level.basedir>
+        <top.level.basedir>${basedir}/../..</top.level.basedir>
     </properties>
 
     <dependencies>

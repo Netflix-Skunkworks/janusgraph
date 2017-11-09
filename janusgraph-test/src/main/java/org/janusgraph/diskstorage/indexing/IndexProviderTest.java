@@ -29,18 +29,22 @@ import org.janusgraph.diskstorage.util.StandardBaseTransactionConfig;
 import org.janusgraph.diskstorage.util.time.TimestampProviders;
 import org.janusgraph.graphdb.query.JanusGraphPredicate;
 import org.janusgraph.graphdb.query.condition.*;
+import org.janusgraph.graphdb.types.ParameterType;
 import org.janusgraph.testutil.RandomGenerator;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.locationtech.spatial4j.shape.Shape;
+import org.locationtech.spatial4j.shape.ShapeCollection;
+import org.locationtech.spatial4j.shape.ShapeFactory;
+import org.locationtech.spatial4j.shape.impl.PointImpl;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 
 import static org.junit.Assert.*;
-import static org.junit.Assert.assertFalse;
 
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
@@ -49,7 +53,7 @@ import static org.junit.Assert.assertFalse;
 public abstract class IndexProviderTest {
 
     private static final Random random = new Random();
-    private static final Parameter[] NO_PARAS = new Parameter[0];
+    private static final Parameter<?>[] NO_PARAS = new Parameter[0];
 
     protected IndexProvider index;
     protected IndexFeatures indexFeatures;
@@ -58,9 +62,10 @@ public abstract class IndexProviderTest {
     protected Map<String,KeyInformation> allKeys;
     protected KeyInformation.IndexRetriever indexRetriever;
 
-    public static final String TEXT = "text", TIME = "time", WEIGHT = "weight", LOCATION = "location", NAME = "name", PHONE_LIST = "phone_list", PHONE_SET = "phone_set", DATE = "date";
+    public static final String TEXT = "text", TIME = "time", WEIGHT = "weight", LOCATION = "location", BOUNDARY = "boundary", NAME = "name", PHONE_LIST = "phone_list", PHONE_SET = "phone_set", DATE = "date", STRING="string",
+            ANALYZED="analyzed", FULL_TEXT="full_text", KEYWORD="keyword";
 
-    public static StandardKeyInformation of(Class<?> clazz, Cardinality cardinality,  Parameter... paras) {
+    public static StandardKeyInformation of(Class<?> clazz, Cardinality cardinality,  Parameter<?>... paras) {
         return new StandardKeyInformation(clazz, cardinality, paras);
     }
 
@@ -85,27 +90,38 @@ public abstract class IndexProviderTest {
         };
     }
 
-    public static final Map<String,KeyInformation> getMapping(final IndexFeatures indexFeatures) {
+    public static final Map<String,KeyInformation> getMapping(final IndexFeatures indexFeatures, final String englishAnalyzerName, final String keywordAnalyzerName) {
         Preconditions.checkArgument(indexFeatures.supportsStringMapping(Mapping.TEXTSTRING) ||
                 (indexFeatures.supportsStringMapping(Mapping.TEXT) && indexFeatures.supportsStringMapping(Mapping.STRING)),
                 "Index must support string and text mapping");
+        Parameter<?> textParameter = indexFeatures.supportsStringMapping(Mapping.TEXT) ? Mapping.TEXT.asParameter() : Mapping.TEXTSTRING.asParameter();
+        Parameter<?> stringParameter = indexFeatures.supportsStringMapping(Mapping.STRING) ? Mapping.STRING.asParameter() : Mapping.TEXTSTRING.asParameter();
         return new HashMap<String,KeyInformation>() {{
-            put(TEXT,new StandardKeyInformation(String.class, Cardinality.SINGLE, new Parameter("mapping",
-                    indexFeatures.supportsStringMapping(Mapping.TEXT)?Mapping.TEXT:Mapping.TEXTSTRING)));
+            put(TEXT,new StandardKeyInformation(String.class, Cardinality.SINGLE,textParameter));
             put(TIME,new StandardKeyInformation(Long.class, Cardinality.SINGLE));
-            put(WEIGHT,new StandardKeyInformation(Double.class, Cardinality.SINGLE, new Parameter("mapping",Mapping.DEFAULT)));
+            put(WEIGHT,new StandardKeyInformation(Double.class, Cardinality.SINGLE, Mapping.DEFAULT.asParameter()));
             put(LOCATION,new StandardKeyInformation(Geoshape.class, Cardinality.SINGLE));
-            put(NAME,new StandardKeyInformation(String.class, Cardinality.SINGLE, new Parameter("mapping",
-                    indexFeatures.supportsStringMapping(Mapping.STRING)?Mapping.STRING:Mapping.TEXTSTRING)));
+            put(BOUNDARY,new StandardKeyInformation(Geoshape.class, Cardinality.SINGLE, Mapping.PREFIX_TREE.asParameter()));
+            put(NAME,new StandardKeyInformation(String.class, Cardinality.SINGLE,stringParameter));
             if(indexFeatures.supportsCardinality(Cardinality.LIST)) {
-                put(PHONE_LIST, new StandardKeyInformation(String.class, Cardinality.LIST, new Parameter("mapping",
-                        indexFeatures.supportsStringMapping(Mapping.STRING) ? Mapping.STRING : Mapping.TEXTSTRING)));
+                put(PHONE_LIST, new StandardKeyInformation(String.class, Cardinality.LIST, stringParameter));
             }
             if(indexFeatures.supportsCardinality(Cardinality.SET)) {
-                put(PHONE_SET, new StandardKeyInformation(String.class, Cardinality.SET, new Parameter("mapping",
-                        indexFeatures.supportsStringMapping(Mapping.STRING) ? Mapping.STRING : Mapping.TEXTSTRING)));
+                put(PHONE_SET, new StandardKeyInformation(String.class, Cardinality.SET, stringParameter));
             }
             put(DATE,new StandardKeyInformation(Instant.class, Cardinality.SINGLE));
+            put(STRING, new StandardKeyInformation(String.class, Cardinality.SINGLE, stringParameter,
+                    new Parameter<String>(ParameterType.STRING_ANALYZER.getName(), englishAnalyzerName)));
+            put(ANALYZED, new StandardKeyInformation(String.class, Cardinality.SINGLE, textParameter,
+                    new Parameter<String>(ParameterType.TEXT_ANALYZER.getName(), englishAnalyzerName)));
+            if(indexFeatures.supportsStringMapping(Mapping.TEXTSTRING)){
+                put(FULL_TEXT, new StandardKeyInformation(String.class, Cardinality.SINGLE,
+                        Mapping.TEXTSTRING.asParameter(),
+                        new Parameter<String>(ParameterType.STRING_ANALYZER.getName(), englishAnalyzerName),
+                        new Parameter<String>(ParameterType.TEXT_ANALYZER.getName(), englishAnalyzerName)));
+            }
+            put(KEYWORD, new StandardKeyInformation(String.class, Cardinality.SINGLE, textParameter,
+                    new Parameter<String>(ParameterType.TEXT_ANALYZER.getName(), keywordAnalyzerName)));
         }};
     }
 
@@ -113,6 +129,10 @@ public abstract class IndexProviderTest {
 
     public abstract boolean supportsLuceneStyleQueries();
 
+    public abstract String getEnglishAnalyzerName();
+    
+    public abstract String getKeywordAnalyzerName();
+    
     @Before
     public void setUp() throws Exception {
         index = openIndex();
@@ -124,7 +144,7 @@ public abstract class IndexProviderTest {
     public void open() throws BackendException {
         index = openIndex();
         indexFeatures = index.getFeatures();
-        allKeys = getMapping(indexFeatures);
+        allKeys = getMapping(indexFeatures, getEnglishAnalyzerName(), getKeywordAnalyzerName());
         indexRetriever = getIndexRetriever(allKeys);
 
         newTx();
@@ -173,9 +193,9 @@ public abstract class IndexProviderTest {
 
     private void storeTest(String... stores) throws Exception {
 
-        Multimap<String, Object> doc1 = getDocument("Hello world", 1001, 5.2, Geoshape.point(48.0, 0.0), Arrays.asList("1", "2", "3"), Sets.newHashSet("1", "2"), Instant.ofEpochSecond(1));
-        Multimap<String, Object> doc2 = getDocument("Tomorrow is the world", 1010, 8.5, Geoshape.point(49.0, 1.0), Arrays.asList("4", "5", "6"), Sets.newHashSet("4", "5"), Instant.ofEpochSecond(2));
-        Multimap<String, Object> doc3 = getDocument("Hello Bob, are you there?", -500, 10.1, Geoshape.point(47.0, 10.0), Arrays.asList("7", "8", "9"), Sets.newHashSet("7", "8"), Instant.ofEpochSecond(3));
+        Multimap<String, Object> doc1 = getDocument("Hello world", 1001, 5.2, Geoshape.point(48.0, 0.0), Geoshape.polygon(Arrays.asList(new double[][] {{-0.1,47.9},{0.1,47.9},{0.1,48.1},{-0.1,48.1},{-0.1,47.9}})),Arrays.asList("1", "2", "3"), Sets.newHashSet("1", "2"), Instant.ofEpochSecond(1));
+        Multimap<String, Object> doc2 = getDocument("Tomorrow is the world", 1010, 8.5, Geoshape.point(49.0, 1.0), Geoshape.line(Arrays.asList(new double[][] {{0.9,48.9},{0.9,49.1},{1.1,49.1},{1.1,48.9}})), Arrays.asList("4", "5", "6"), Sets.newHashSet("4", "5"), Instant.ofEpochSecond(2));
+        Multimap<String, Object> doc3 = getDocument("Hello Bob, are you there?", -500, 10.1, Geoshape.point(47.0, 10.0), Geoshape.box(46.9, 9.9, 47.1, 10.1), Arrays.asList("7", "8", "9"), Sets.newHashSet("7", "8"), Instant.ofEpochSecond(3));
 
         for (String store : stores) {
             initialize(store);
@@ -204,6 +224,7 @@ public abstract class IndexProviderTest {
             assertEquals(0, tx.query(new IndexQuery(store, PredicateCondition.of(TEXT, Text.CONTAINS, "worl"))).size());
             assertEquals(1, tx.query(new IndexQuery(store, PredicateCondition.of(TEXT, Text.CONTAINS, "Tomorrow world"))).size());
             assertEquals(1, tx.query(new IndexQuery(store, PredicateCondition.of(TEXT, Text.CONTAINS, "WorLD HELLO"))).size());
+            assertEquals(1, tx.query(new IndexQuery(store, PredicateCondition.of(TEXT, Text.CONTAINS_FUZZY, "boby"))).size());
 
 
             //Ordering
@@ -246,6 +267,7 @@ public abstract class IndexProviderTest {
             assertEquals(3, tx.query(new IndexQuery(store, PredicateCondition.of(NAME, Cmp.NOT_EQUAL, "bob"))).size());
             assertEquals(1, tx.query(new IndexQuery(store, PredicateCondition.of(NAME, Text.PREFIX, "Tomorrow"))).size());
             assertEquals(0, tx.query(new IndexQuery(store, PredicateCondition.of(NAME, Text.PREFIX, "wor"))).size());
+            assertEquals(1, tx.query(new IndexQuery(store, PredicateCondition.of(NAME, Text.FUZZY, "Tomorow is the world"))).size());
             for (JanusGraphPredicate tp : new Text[]{Text.CONTAINS,Text.CONTAINS_PREFIX, Text.CONTAINS_REGEX}) {
                 try {
                     assertEquals(0, tx.query(new IndexQuery(store, PredicateCondition.of(NAME, tp, "tzubull"))).size());
@@ -257,7 +279,7 @@ public abstract class IndexProviderTest {
                 assertEquals(0, tx.query(new IndexQuery(store, PredicateCondition.of(NAME, Text.REGEX, "Tomorrow"))).size());
             }
 
-            if (index.supports(new StandardKeyInformation(String.class, Cardinality.SINGLE, new Parameter("mapping", Mapping.STRING)), Text.REGEX)) {
+            if (index.supports(new StandardKeyInformation(String.class, Cardinality.SINGLE, Mapping.STRING.asParameter()), Text.REGEX)) {
                 assertEquals(1, tx.query(new IndexQuery(store, PredicateCondition.of(NAME, Text.REGEX, "Tomo[r]+ow is.*world"))).size());
                 assertEquals(0, tx.query(new IndexQuery(store, PredicateCondition.of(NAME, Text.REGEX, "Tomorrow"))).size());
             }
@@ -301,18 +323,63 @@ public abstract class IndexProviderTest {
             assertEquals(1, result.size());
             assertEquals("doc2", result.get(0));
 
+            result = tx.query(new IndexQuery(store, PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.box(46.5, -0.5, 50.5, 10.5))));
+            assertEquals(3,result.size());
+            assertEquals(ImmutableSet.of("doc1", "doc2", "doc3"), ImmutableSet.copyOf(result));
+
             result = tx.query(new IndexQuery(store, PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.circle(48.5, 0.5, 200.00))));
             assertEquals(2, result.size());
             assertEquals(ImmutableSet.of("doc1", "doc2"), ImmutableSet.copyOf(result));
 
-            result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of(TEXT, Text.CONTAINS, "tomorrow"), PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.circle(48.5, 0.5, 200.00)))));
-            assertEquals(ImmutableSet.of("doc2"), ImmutableSet.copyOf(result));
-
-            result = tx.query(new IndexQuery(store, PredicateCondition.of("location", Geo.WITHIN, Geoshape.box(46.5, -0.5, 50.5, 10.5))));
+            result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.WITHIN, Geoshape.box(46.5, -0.5, 50.5, 10.5))));
             assertEquals(3,result.size());
             assertEquals(ImmutableSet.of("doc1", "doc2", "doc3"), ImmutableSet.copyOf(result));
 
-            result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of(TIME, Cmp.GREATER_THAN_EQUAL, -1000), PredicateCondition.of(TIME, Cmp.LESS_THAN, 1010), PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.circle(48.5, 0.5, 1000.00)))));
+            result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.WITHIN, Geoshape.circle(48.5, 0.5, 200.00))));
+            assertEquals(2, result.size());
+            assertEquals(ImmutableSet.of("doc1", "doc2"), ImmutableSet.copyOf(result));
+
+            result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.WITHIN, Geoshape.polygon(Arrays.asList(new double[][]
+                    {{-5.0,47.0},{5.0,47.0},{5.0,50.0},{-5.0,50.0},{-5.0,47.0}})))));
+            assertEquals(2, result.size());
+            assertEquals(ImmutableSet.of("doc1","doc2"), ImmutableSet.copyOf(result));
+
+            if (index.supports(new StandardKeyInformation(Geoshape.class, Cardinality.SINGLE, Mapping.PREFIX_TREE.asParameter()), Geo.DISJOINT)) {
+                result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.DISJOINT, Geoshape.box(46.5, -0.5, 50.5, 10.5))));
+                assertEquals(0,result.size());
+
+                result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.DISJOINT, Geoshape.circle(48.5, 0.5, 200.00))));
+                assertEquals(1, result.size());
+                assertEquals(ImmutableSet.of("doc3"), ImmutableSet.copyOf(result));
+
+                result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.DISJOINT, Geoshape.polygon(Arrays.asList(new double[][]
+                        {{-5.0,47.0},{5.0,47.0},{5.0,50.0},{-5.0,50.0},{-5.0,47.0}})))));
+                assertEquals(1, result.size());
+                assertEquals(ImmutableSet.of("doc3"), ImmutableSet.copyOf(result));
+            }
+
+            if (indexFeatures.supportsGeoContains()) {
+                result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.CONTAINS, Geoshape.point(47, 10))));
+                assertEquals(1, result.size());
+                assertEquals(ImmutableSet.of("doc3"), ImmutableSet.copyOf(result));
+            }
+
+            result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.INTERSECT, Geoshape.box(48,-1,49,2))));
+            assertEquals(2,result.size());
+            assertEquals(ImmutableSet.of("doc1","doc2"), ImmutableSet.copyOf(result));
+
+            result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.INTERSECT, Geoshape.circle(48.5, 0.5, 200.00))));
+            assertEquals(2, result.size());
+            assertEquals(ImmutableSet.of("doc1", "doc2"), ImmutableSet.copyOf(result));
+
+            result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.INTERSECT, Geoshape.polygon(Arrays.asList(new double[][] {{-1.0,48.0},{2.0,48.0},{2.0,49.0},{-1.0,49.0},{-1.0,48.0}})))));
+            assertEquals(2, result.size());
+            assertEquals(ImmutableSet.of("doc1","doc2"), ImmutableSet.copyOf(result));
+
+            result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of("text", Text.CONTAINS, "tomorrow"), PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.circle(48.5, 0.5, 200.00)), PredicateCondition.of(BOUNDARY, Geo.WITHIN, Geoshape.circle(48.5, 0.5, 200.00)))));
+            assertEquals(ImmutableSet.of("doc2"), ImmutableSet.copyOf(result));
+
+            result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of(TIME, Cmp.GREATER_THAN_EQUAL, -1000), PredicateCondition.of(TIME, Cmp.LESS_THAN, 1010), PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.circle(48.5, 0.5, 1000.00)), PredicateCondition.of(BOUNDARY, Geo.WITHIN, Geoshape.circle(48.5, 0.5, 1000.00)))));
             assertEquals(ImmutableSet.of("doc1", "doc3"), ImmutableSet.copyOf(result));
 
             result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of(WEIGHT, Cmp.GREATER_THAN, 10.0))));
@@ -336,7 +403,7 @@ public abstract class IndexProviderTest {
                 assertEquals(1, Iterables.size(tx.query(new RawQuery(store,"name:\"Hello world\"",NO_PARAS))));
             }
 
-            if (index.supports(new StandardKeyInformation(String.class, Cardinality.LIST, new Parameter("mapping", Mapping.STRING)), Cmp.EQUAL)) {
+            if (index.supports(new StandardKeyInformation(String.class, Cardinality.LIST, Mapping.STRING.asParameter()), Cmp.EQUAL)) {
                 assertEquals("doc1", tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_LIST, Cmp.EQUAL, "1"))).get(0));
                 assertEquals("doc1", tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_LIST, Cmp.EQUAL, "2"))).get(0));
                 assertEquals("doc2", tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_LIST, Cmp.EQUAL, "4"))).get(0));
@@ -363,14 +430,24 @@ public abstract class IndexProviderTest {
 
 
             //Update some data
-            add(store, "doc4", getDocument("I'ts all a big Bob", -100, 11.2, Geoshape.point(48.0, 8.0), Arrays.asList("10", "11", "12"), Sets.newHashSet("10", "11"), Instant.ofEpochSecond(4)), true);
+            add(store, "doc4", getDocument("I'ts all a big Bob", -100, 11.2, Geoshape.point(-48.0, 8.0), Geoshape.point(-48.0, 8.0), Arrays.asList("10", "11", "12"), Sets.newHashSet("10", "11"), Instant.ofEpochSecond(4)), true);
             remove(store, "doc2", doc2, true);
-            remove(store, "doc3", ImmutableMultimap.of(WEIGHT, (Object) 10.1), false);
-            add(store, "doc3", ImmutableMultimap.of(TIME, (Object) 2000, TEXT, "Bob owns the world"), false);
+            remove(store, "doc3", ImmutableMultimap.of(WEIGHT, 10.1), false);
+            add(store, "doc3", ImmutableMultimap.of(TIME, 2000, TEXT, "Bob owns the world"), false);
             remove(store, "doc1", ImmutableMultimap.of(TIME, (Object) 1001), false);
-            add(store, "doc1", ImmutableMultimap.of(TIME, (Object) 1005, WEIGHT, 11.1), false);
-
-
+            add(store, "doc1", ImmutableMultimap.of(TIME, 1005, WEIGHT, 11.1, LOCATION, Geoshape.point(-48.0, 0.0), BOUNDARY, Geoshape.circle(-48.0, 0.0, 1.0)), false);
+            Geoshape multiPoint = Geoshape.geoshape(Geoshape.getShapeFactory().multiPoint().pointXY(60.0, 60.0).pointXY(120.0, 60.0).build());
+            add(store, "doc5", getDocument("A Full Yes", -100, -11.2, Geoshape.point(48.0, 8.0), multiPoint, Arrays.asList("10", "11", "12"), Sets.newHashSet("10", "11"), Instant.ofEpochSecond(400)), true);
+            Geoshape multiLine = Geoshape.geoshape(Geoshape.getShapeFactory().multiLineString().add(Geoshape.getShapeFactory().lineString().pointXY(59.0, 60.0).pointXY(61.0, 60.0))
+                    .add(Geoshape.getShapeFactory().lineString().pointXY(119.0, 60.0).pointXY(121.0, 60.0)).build());
+            add(store, "doc6", getDocument("A Full Yes", -100, -11.2, Geoshape.point(48.0, 8.0), multiLine, Arrays.asList("10", "11", "12"), Sets.newHashSet("10", "11"), Instant.ofEpochSecond(400)), true);
+            Geoshape multiPolygon =  Geoshape.geoshape(Geoshape.getShapeFactory().multiPolygon()
+                    .add(Geoshape.getShapeFactory().polygon().pointXY(59.0, 59.0).pointXY(61.0, 59.0).pointXY(61.0, 61.0).pointXY(59.0, 61.0).pointXY(59.0, 59.0))
+                    .add(Geoshape.getShapeFactory().polygon().pointXY(119.0, 59.0).pointXY(121.0, 59.0).pointXY(121.0, 61.0).pointXY(119.0, 61.0).pointXY(119.0, 59.0)).build());
+            add(store, "doc7", getDocument("A Full Yes", -100, -11.2, Geoshape.point(48.0, 8.0), multiPolygon, Arrays.asList("10", "11", "12"), Sets.newHashSet("10", "11"), Instant.ofEpochSecond(400)), true);
+            Geoshape geometryCollection =  Geoshape.geoshape(Geoshape.getGeometryCollectionBuilder().add(Geoshape.getShapeFactory().pointXY(60.0, 60.0))
+                    .add(Geoshape.getShapeFactory().lineString().pointXY(119.0, 60.0).pointXY(121.0, 60.0).build()).build());
+            add(store, "doc8", getDocument("A Full Yes", -100, -11.2, Geoshape.point(48.0, 8.0), geometryCollection, Arrays.asList("10", "11", "12"), Sets.newHashSet("10", "11"), Instant.ofEpochSecond(400)), true);
         }
 
         clopen();
@@ -384,13 +461,22 @@ public abstract class IndexProviderTest {
             assertEquals(1, result.size());
             assertEquals("doc1", result.get(0));
 
-            result = tx.query(new IndexQuery(store, PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.circle(48.5, 0.5, 200.00))));
+            result = tx.query(new IndexQuery(store, PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.circle(-48.5, 0.5, 200.00))));
             assertEquals(ImmutableSet.of("doc1"), ImmutableSet.copyOf(result));
 
-            result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of(TEXT, Text.CONTAINS, "tomorrow"), PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.circle(48.5, 0.5, 200.00)))));
+            result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.WITHIN, Geoshape.circle(-48.5, 0.5, 200.00))));
+            assertEquals(ImmutableSet.of("doc1"), ImmutableSet.copyOf(result));
+
+            result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of(TEXT, Text.CONTAINS, "tomorrow"), PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.circle(-48.5, 0.5, 200.00)))));
             assertEquals(ImmutableSet.of(), ImmutableSet.copyOf(result));
 
-            result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of(TIME, Cmp.GREATER_THAN_EQUAL, -1000), PredicateCondition.of(TIME, Cmp.LESS_THAN, 1010), PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.circle(48.5, 0.5, 1000.00)))));
+            result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of(TEXT, Text.CONTAINS, "tomorrow"), PredicateCondition.of(BOUNDARY, Geo.WITHIN, Geoshape.circle(-48.5, 0.5, 200.00)))));
+            assertEquals(ImmutableSet.of(), ImmutableSet.copyOf(result));
+
+            result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of(TIME, Cmp.GREATER_THAN_EQUAL, -1000), PredicateCondition.of(TIME, Cmp.LESS_THAN, 1010), PredicateCondition.of(LOCATION, Geo.WITHIN, Geoshape.circle(-48.5, 0.5, 1000.00)))));
+            assertEquals(ImmutableSet.of("doc1", "doc4"), ImmutableSet.copyOf(result));
+
+            result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of(TIME, Cmp.GREATER_THAN_EQUAL, -1000), PredicateCondition.of(TIME, Cmp.LESS_THAN, 1010), PredicateCondition.of(BOUNDARY, Geo.WITHIN, Geoshape.circle(-48.5, 0.5, 1000.00)))));
             assertEquals(ImmutableSet.of("doc1", "doc4"), ImmutableSet.copyOf(result));
 
             result = tx.query(new IndexQuery(store, And.of(PredicateCondition.of(WEIGHT, Cmp.GREATER_THAN, 10.0))));
@@ -400,10 +486,12 @@ public abstract class IndexProviderTest {
             assertEquals(0, result.size());
 
             if (index.supports(new StandardKeyInformation(String.class, Cardinality.LIST, new Parameter("mapping", Mapping.STRING)), Cmp.EQUAL)) {
-                assertEquals("doc4", tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_LIST, Cmp.EQUAL, "10"))).get(0));
-                assertEquals("doc4", tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_LIST, Cmp.EQUAL, "11"))).get(0));
-                assertEquals("doc4", tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_SET, Cmp.EQUAL, "10"))).get(0));
-                assertEquals("doc4", tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_SET, Cmp.EQUAL, "11"))).get(0));
+                for (int sufx=4; sufx<=8; sufx++) {
+                    assertTrue(tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_LIST, Cmp.EQUAL, "10"))).contains("doc"+sufx));
+                    assertTrue(tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_LIST, Cmp.EQUAL, "11"))).contains("doc"+sufx));
+                    assertTrue(tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_SET, Cmp.EQUAL, "10"))).contains("doc"+sufx));
+                    assertTrue(tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_SET, Cmp.EQUAL, "11"))).contains("doc"+sufx));
+                }
                 assertEquals(0, tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_LIST, Cmp.EQUAL, "4"))).size());
                 assertEquals(0, tx.query(new IndexQuery(store, PredicateCondition.of(PHONE_LIST, Cmp.EQUAL, "5"))).size());
             }
@@ -411,7 +499,11 @@ public abstract class IndexProviderTest {
             assertTrue(tx.query(new IndexQuery(store, PredicateCondition.of(DATE, Cmp.EQUAL, Instant.ofEpochSecond(2)))).isEmpty());
             assertEquals("doc4", tx.query(new IndexQuery(store, PredicateCondition.of(DATE, Cmp.EQUAL, Instant.ofEpochSecond(4)))).get(0));
 
+            result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.INTERSECT, Geoshape.circle(59, 59, 200.00))));
+            assertEquals(ImmutableSet.of("doc5", "doc6","doc7", "doc8"), ImmutableSet.copyOf(result));
 
+            result = tx.query(new IndexQuery(store, PredicateCondition.of(BOUNDARY, Geo.INTERSECT, Geoshape.circle(59, 119, 200.00))));
+            assertEquals(ImmutableSet.of("doc5", "doc6", "doc7", "doc8"), ImmutableSet.copyOf(result));
         }
 
     }
@@ -431,7 +523,6 @@ public abstract class IndexProviderTest {
         assertTrue(index.supports(of(Short.class, Cardinality.SINGLE)));
         assertTrue(index.supports(of(Byte.class, Cardinality.SINGLE)));
         assertTrue(index.supports(of(Float.class, Cardinality.SINGLE)));
-        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE)));
         assertFalse(index.supports(of(Object.class, Cardinality.SINGLE)));
         assertFalse(index.supports(of(Exception.class, Cardinality.SINGLE)));
 
@@ -440,11 +531,16 @@ public abstract class IndexProviderTest {
         assertTrue(index.supports(of(Double.class, Cardinality.SINGLE), Cmp.LESS_THAN));
         assertTrue(index.supports(of(Double.class, Cardinality.SINGLE, new Parameter("mapping",Mapping.DEFAULT)), Cmp.LESS_THAN));
         assertFalse(index.supports(of(Double.class, Cardinality.SINGLE, new Parameter("mapping",Mapping.TEXT)), Cmp.LESS_THAN));
-        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE), Geo.WITHIN));
 
         assertFalse(index.supports(of(Double.class, Cardinality.SINGLE), Geo.INTERSECT));
         assertFalse(index.supports(of(Long.class, Cardinality.SINGLE), Text.CONTAINS));
-        assertFalse(index.supports(of(Geoshape.class, Cardinality.SINGLE), Geo.DISJOINT));
+
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE)));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE), Geo.WITHIN));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE), Geo.INTERSECT));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE, new Parameter("mapping",Mapping.PREFIX_TREE)), Geo.WITHIN));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE, new Parameter("mapping",Mapping.PREFIX_TREE)), Geo.CONTAINS));
+        assertTrue(index.supports(of(Geoshape.class, Cardinality.SINGLE, new Parameter("mapping",Mapping.PREFIX_TREE)), Geo.INTERSECT));
     }
 
     @Test
@@ -814,6 +910,115 @@ public abstract class IndexProviderTest {
         checkResult(new IndexQuery(defStore, PredicateCondition.of(TEXT, Text.CONTAINS, "brown")),null);
     }
 
+    /**
+     * Test custom analyzer
+     * @throws Exception
+     */
+    @Test
+    public void testCustomAnalyzer() throws Exception {
+        if (!indexFeatures.supportsCustomAnalyzer())
+            return;
+        String store = "vertex";
+        initialize(store);
+        Multimap<String, Object> initialDoc = HashMultimap.create();
+        
+        initialDoc.put(STRING, "Tom and Jerry");
+        initialDoc.put(ANALYZED, "Tom and Jerry");
+        if(indexFeatures.supportsStringMapping(Mapping.TEXTSTRING))
+            initialDoc.put(FULL_TEXT, "Tom and Jerry");
+        initialDoc.put(KEYWORD, "Tom and Jerry");
+        add(store, "docId", initialDoc, true);
+        clopen();
+
+        IndexQuery query = new IndexQuery(store, PredicateCondition.of(STRING, Cmp.EQUAL, "Tom and Jerry"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+        query = new IndexQuery(store, PredicateCondition.of(STRING, Cmp.EQUAL, "Tom Jerry"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+        query = new IndexQuery(store, PredicateCondition.of(STRING, Cmp.EQUAL, "Tom or Jerry"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+        query = new IndexQuery(store, PredicateCondition.of(STRING, Text.PREFIX, "jerr"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+        query = new IndexQuery(store, PredicateCondition.of(STRING, Text.REGEX, "jer.*"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+        query = new IndexQuery(store, PredicateCondition.of(ANALYZED, Text.CONTAINS, "Tom and Jerry"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+        query = new IndexQuery(store, PredicateCondition.of(ANALYZED, Text.CONTAINS, "Tom Jerry"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+        query = new IndexQuery(store, PredicateCondition.of(ANALYZED, Text.CONTAINS, "Tom or Jerry"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+        query = new IndexQuery(store, PredicateCondition.of(ANALYZED, Text.CONTAINS_PREFIX, "jerr"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+        query = new IndexQuery(store, PredicateCondition.of(ANALYZED, Text.CONTAINS_REGEX, "jer.*"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+        if(indexFeatures.supportsStringMapping(Mapping.TEXTSTRING)){
+            query = new IndexQuery(store, PredicateCondition.of(FULL_TEXT, Cmp.EQUAL, "Tom and Jerry"));
+            assertEquals(query.toString(), 1, tx.query(query).size());
+            query = new IndexQuery(store, PredicateCondition.of(FULL_TEXT, Cmp.EQUAL, "Tom Jerry"));
+            assertEquals(query.toString(), 1, tx.query(query).size());
+            query = new IndexQuery(store, PredicateCondition.of(FULL_TEXT, Cmp.EQUAL, "Tom or Jerry"));
+            assertEquals(query.toString(), 1, tx.query(query).size());
+            query = new IndexQuery(store, PredicateCondition.of(FULL_TEXT, Text.PREFIX, "jerr"));
+            assertEquals(query.toString(), 1, tx.query(query).size());
+            query = new IndexQuery(store, PredicateCondition.of(FULL_TEXT, Text.REGEX, "jer.*"));
+            assertEquals(query.toString(), 1, tx.query(query).size());
+            query = new IndexQuery(store, PredicateCondition.of(FULL_TEXT, Text.CONTAINS, "Tom and Jerry"));
+            assertEquals(query.toString(), 1, tx.query(query).size());
+            query = new IndexQuery(store, PredicateCondition.of(FULL_TEXT, Text.CONTAINS, "Tom Jerry"));
+            assertEquals(query.toString(), 1, tx.query(query).size());
+            query = new IndexQuery(store, PredicateCondition.of(FULL_TEXT, Text.CONTAINS, "Tom or Jerry"));
+            assertEquals(query.toString(), 1, tx.query(query).size());
+            query = new IndexQuery(store, PredicateCondition.of(FULL_TEXT, Text.CONTAINS_PREFIX, "jerr"));
+            assertEquals(query.toString(), 1, tx.query(query).size());
+            query = new IndexQuery(store, PredicateCondition.of(FULL_TEXT, Text.CONTAINS_REGEX, "jer.*"));
+            assertEquals(query.toString(), 1, tx.query(query).size());
+        }
+
+        query = new IndexQuery(store, PredicateCondition.of(KEYWORD, Text.CONTAINS_PREFIX, "Tom"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+        query = new IndexQuery(store, PredicateCondition.of(KEYWORD, Text.CONTAINS_REGEX, ".*Jer.*"));
+        assertEquals(query.toString(), 1, tx.query(query).size());
+
+    }
+
+    @Test
+    public void testScroll() throws BackendException {
+        final String store = "vertex";
+        initialize(store);
+        add(store, "doc1", getDocument("Hello world", 1001, 5.2), true);
+        add(store, "doc2", getDocument("Hello world", 1001, 5.2), true);
+        add(store, "doc3", getDocument("Hello world", 1001, 6.2), true);
+        add(store, "doc4", getDocument("Hello world", 1002, 7.2), true);
+        add(store, "doc5", getDocument("Hello world", 1002, 8.2), true);
+        add(store, "doc6", getDocument("Hello world", 1002, 9.2), true);
+        add(store, "doc7", getDocument("Hello world", 1002, 10.2), true);
+
+        clopen();
+
+        //Test res < batchSize
+        assertEquals(2, tx.queryStream(new IndexQuery(store, PredicateCondition.of(WEIGHT, Cmp.EQUAL, 5.2))).count());
+        //Test res = batchSize
+        assertEquals(3, tx.queryStream(new IndexQuery(store, PredicateCondition.of(TIME, Cmp.EQUAL, 1001))).count());
+        //Test res > batchSize
+        assertEquals(7, tx.queryStream(new IndexQuery(store, PredicateCondition.of(NAME, Cmp.EQUAL, "Hello world"))).count());
+        //Test res == limit
+        assertEquals(4, tx.queryStream(new IndexQuery(store, PredicateCondition.of(TIME, Cmp.EQUAL, 1002), 4)).count());
+        //Test limit % batchSize == 0
+        assertEquals(6, tx.queryStream(new IndexQuery(store, PredicateCondition.of(NAME, Cmp.EQUAL, "Hello world"), 6)).count());
+    }
+
+    @Test
+    public void clearStorageTest() throws Exception {
+        final String store = "vertex";
+        initialize(store);
+        final Multimap<String, Object> doc1 = getDocument("Hello world", 1001, 5.2, Geoshape.point(48.0, 0.0), Geoshape.polygon(Arrays.asList(new double[][] {{-0.1,47.9},{0.1,47.9},{0.1,48.1},{-0.1,48.1},{-0.1,47.9}})),Arrays.asList("1", "2", "3"), Sets.newHashSet("1", "2"), Instant.ofEpochSecond(1));
+        add(store, "doc1", doc1, true);
+        clopen();
+        assertTrue(index.exists());
+        tearDown();
+        setUp();
+        assertFalse(index.exists());
+    }
+
     /* ==================================================================================
                             HELPER METHODS
      ==================================================================================*/
@@ -852,13 +1057,14 @@ public abstract class IndexProviderTest {
     }
 
 
-    public Multimap<String, Object> getDocument(final String txt, final long time, final double weight, final Geoshape geo, List<String> phoneList, Set<String> phoneSet, Instant date) {
+    public Multimap<String, Object> getDocument(final String txt, final long time, final double weight, final Geoshape location, final Geoshape boundary, List<String> phoneList, Set<String> phoneSet, Instant date) {
         HashMultimap<String, Object> values = HashMultimap.create();
         values.put(TEXT, txt);
         values.put(NAME, txt);
         values.put(TIME, time);
         values.put(WEIGHT, weight);
-        values.put(LOCATION, geo);
+        values.put(LOCATION, location);
+        values.put(BOUNDARY, boundary);
         values.put(DATE, date);
         if(indexFeatures.supportsCardinality(Cardinality.LIST)) {
             for (String phone : phoneList) {
@@ -890,6 +1096,14 @@ public abstract class IndexProviderTest {
         for (RawQuery.Result<String> r : result) {
             System.out.println(r.getResult() + ":"+r.getScore());
         }
+    }
+
+    private Multimap<String, Object> getDocument(String txt, final long time, final double weight) {
+        final Multimap<String, Object> toReturn = HashMultimap.create();
+        toReturn.put(NAME, txt);
+        toReturn.put(TIME, time);
+        toReturn.put(WEIGHT, weight);
+        return toReturn;
     }
 
 }

@@ -20,6 +20,7 @@ import com.google.common.collect.Lists;
 import org.janusgraph.core.attribute.*;
 import org.janusgraph.diskstorage.ReadBuffer;
 import org.janusgraph.diskstorage.StaticBuffer;
+import org.janusgraph.graphdb.database.idhandling.VariableLong;
 import org.janusgraph.graphdb.database.serialize.DataOutput;
 import org.janusgraph.graphdb.database.serialize.attribute.*;
 import org.janusgraph.graphdb.serializer.attributes.*;
@@ -234,6 +235,27 @@ public class SerializerTest extends SerializerTestCommon {
         assertFalse(b.hasRemaining());
 
     }
+    
+    @Test
+    public void customHashMapSerializeTest() {
+        serialize.registerClass(1,HashMap.class, new THashMapSerializer());
+        DataOutput out = serialize.getDataOutput(128);
+
+        final String property1 = "property1";
+        final String value1 = "value1";
+        HashMap<String, Object> hashMapIn = new HashMap<String, Object>();
+        hashMapIn.put(property1, value1);
+        out.writeObjectNotNull(hashMapIn);
+
+        ReadBuffer b = out.getStaticBuffer().asReadBuffer();
+        if (printStats) log.debug(bufferStats(b));
+        
+        HashMap<String, Object> hashMapOut = serialize.readObjectNotNull(b, HashMap.class);
+        assertNotNull(hashMapOut);
+        assertEquals(2, hashMapOut.size());
+        assertEquals(value1, hashMapOut.get(property1));
+        assertTrue(hashMapOut.containsKey(THashMapSerializer.class.getName())); // THashMapSerializer adds this
+    }
 
     private StaticBuffer getStringBuffer(String value) {
         DataOutput o = serialize.getDataOutput(value.length()+10);
@@ -354,6 +376,38 @@ public class SerializerTest extends SerializerTestCommon {
 
     }
 
+    @Test
+    public void testLegacyPointSerialization() {
+        Geoshape geo = Geoshape.point(0.5, 2.5);
+        Geoshape geo2 = Geoshape.point(1.5, 3.5);
+        DataOutput out = serialize.getDataOutput(128);
+
+        int length = geo.size();
+        VariableLong.writePositive(out,length);
+        for (int i = 0; i < 2; i++) {
+            for (int j = 0; j < length; j++) {
+                Geoshape.Point point = geo.getPoint(j);
+                out.putFloat((float) (i==0 ? geo.getPoint(j).getLatitude() : geo.getPoint(j).getLongitude()));
+            }
+        }
+        
+        // Add a second point to the same buffer
+        
+        length = geo2.size();
+        VariableLong.writePositive(out,length);
+        for (int i = 0; i < 2; i++) {
+            for (int j = 0; j < length; j++) {
+                Geoshape.Point point = geo2.getPoint(j);
+                out.putFloat((float) (i==0 ? geo2.getPoint(j).getLatitude() : geo2.getPoint(j).getLongitude()));
+            }
+        }
+
+        ReadBuffer b = out.getStaticBuffer().asReadBuffer();
+        
+        assertEquals(geo, serialize.readObjectNotNull(b, Geoshape.class));
+        assertEquals(geo2, serialize.readObjectNotNull(b, Geoshape.class));
+    }
+
     private static class SerialEntry {
 
         final Object object;
@@ -407,6 +461,14 @@ public class SerializerTest extends SerializerTestCommon {
 
     public static final float randomGeoPoint() {
         return random.nextFloat()*180.0f-90.0f;
+    }
+
+    public static final List<double[]> randomGeoPoints(int n) {
+        List<double[]> points = new ArrayList<>();
+        for (int i=0; i<n; i++) {
+            points.add(new double[] {random.nextFloat()*360.0f-180.0f, random.nextFloat()*180.0f-90.0f});
+        }
+        return points;
     }
 
     public static Map<Class,Factory> TYPES = new HashMap<Class,Factory>() {{
@@ -467,10 +529,19 @@ public class SerializerTest extends SerializerTestCommon {
         put(Geoshape.class, new Factory<Geoshape>() {
             @Override
             public Geoshape newInstance() {
-                if (random.nextDouble()>0.5)
-                    return Geoshape.box(randomGeoPoint(),randomGeoPoint(),randomGeoPoint(),randomGeoPoint());
-                else
-                    return Geoshape.circle(randomGeoPoint(),randomGeoPoint(),random.nextInt(100)+1);
+                double alpha = random.nextDouble();
+                double x0=randomGeoPoint(), y0=randomGeoPoint(), x1=randomGeoPoint(), y1=randomGeoPoint();
+                if (alpha>0.75) {
+                    double minx=Math.min(x0,x1), miny=Math.min(y0,y1);
+                    double maxx=minx==x0? x1 : x0, maxy=miny==y0 ? y1 : y0;
+                    return Geoshape.box(miny, minx, maxy, maxx);
+                } else if (alpha>0.5) {
+                    return Geoshape.circle(y0,x0,random.nextInt(100)+1);
+                } else if (alpha>0.25) {
+                    return Geoshape.line(Arrays.asList(new double[][] {{x0,y0},{x0,y1},{x1,y1},{x1,y0}}));
+                } else {
+                    return Geoshape.polygon(Arrays.asList(new double[][] {{x0,y0},{x1,y0},{x1,y1},{x0,y1},{x0,y0}}));
+                }
             }
         });
         put(String.class, STRING_FACTORY);

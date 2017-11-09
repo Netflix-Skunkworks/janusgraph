@@ -3,13 +3,13 @@
     <parent>
         <groupId>org.janusgraph</groupId>
         <artifactId>janusgraph</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.3.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>janusgraph-core</artifactId>
     <name>JanusGraph-Core: Core Library for JanusGraph</name>
     <url>http://janusgraph.org</url>
-    
+
     <properties>
         <top.level.basedir>${basedir}/..</top.level.basedir>
     </properties>
@@ -37,6 +37,12 @@
             <artifactId>tinkergraph-gremlin</artifactId>
             <version>${tinkerpop.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.tinkerpop</groupId>
+            <artifactId>gremlin-server</artifactId>
+            <version>${tinkerpop.version}</version>
+            <optional>true</optional>
+        </dependency>
         <!-- Utility -->
         <dependency>
             <groupId>org.glassfish</groupId>
@@ -50,6 +56,13 @@
         <dependency>
             <groupId>com.codahale.metrics</groupId>
             <artifactId>metrics-ganglia</artifactId>
+            <exclusions>
+                <!-- LGPL licensed - users will need to install this jar manually -->
+                <exclusion>
+                    <groupId>org.acplt</groupId>
+                    <artifactId>oncrpc</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.codahale.metrics</groupId>
@@ -60,8 +73,13 @@
             <artifactId>reflections</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.spatial4j</groupId>
+            <groupId>org.locationtech.spatial4j</groupId>
             <artifactId>spatial4j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.vividsolutions</groupId>
+            <artifactId>jts</artifactId>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>commons-collections</groupId>
@@ -94,6 +112,24 @@
        <dependency>
            <groupId>com.google.code.findbugs</groupId>
            <artifactId>jsr305</artifactId>
+       </dependency>
+       <!-- The Noggit JSON parsing library is needed for GeoJSON parsing -->
+       <dependency>
+           <groupId>org.noggit</groupId>
+           <artifactId>noggit</artifactId>
+           <version>0.6</version>
+       </dependency>
+       <!-- We keep the gremlin version of org.apache.commons commons-lang3 -->
+       <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-text</artifactId>
+            <version>1.0</version>
+            <exclusions>
+                 <exclusion>
+                      <groupId>org.apache.commons</groupId>
+                      <artifactId>commons-lang3</artifactId>
+                  </exclusion>
+             </exclusions>
        </dependency>
     </dependencies>
     <build>

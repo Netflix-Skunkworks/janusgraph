@@ -22,6 +22,7 @@ import java.time.Duration;
 import org.janusgraph.diskstorage.cassandra.AbstractCassandraStoreManager;
 
 import org.janusgraph.diskstorage.cassandra.utils.CassandraDaemonWrapper;
+import org.janusgraph.diskstorage.configuration.ConfigElement;
 import org.janusgraph.diskstorage.configuration.ModifiableConfiguration;
 import org.janusgraph.diskstorage.configuration.WriteConfiguration;
 
@@ -38,6 +39,7 @@ public class CassandraStorageSetup {
 
     public static final String CONFDIR_SYSPROP = "test.cassandra.confdir";
     public static final String DATADIR_SYSPROP = "test.cassandra.datadir";
+    public static final String HOSTNAME = System.getProperty(ConfigElement.getPath(STORAGE_HOSTS));
 
     private static volatile Paths paths;
 
@@ -54,11 +56,15 @@ public class CassandraStorageSetup {
 
     private static ModifiableConfiguration getGenericConfiguration(String ks, String backend) {
         ModifiableConfiguration config = buildGraphConfiguration();
-        config.set(CASSANDRA_KEYSPACE, cleanKeyspaceName(ks));
-        log.debug("Set keyspace name: {}", config.get(CASSANDRA_KEYSPACE));
+        if (null != ks) {
+            config.set(CASSANDRA_KEYSPACE, cleanKeyspaceName(ks));
+            log.debug("Set keyspace name: {}", config.get(CASSANDRA_KEYSPACE));
+        }
         config.set(PAGE_SIZE,500);
         config.set(CONNECTION_TIMEOUT, Duration.ofSeconds(60L));
         config.set(STORAGE_BACKEND, backend);
+        if (HOSTNAME != null) config.set(STORAGE_HOSTS, new String[]{HOSTNAME});
+        config.set(DROP_ON_CLEAR, false);
         return config;
     }
 
@@ -115,6 +121,16 @@ public class CassandraStorageSetup {
         return getCassandraThriftConfiguration(ks).getConfiguration();
     }
 
+    public static ModifiableConfiguration getEmbeddedOrThriftConfiguration(String keyspace) {
+        final ModifiableConfiguration config;
+        if (HOSTNAME == null) {
+            config = getEmbeddedConfiguration(keyspace);
+        }  else {
+            config = getCassandraThriftConfiguration(keyspace);
+        }
+        return config;
+    }
+
     /**
      * Load cassandra.yaml and data paths from the environment or from default
      * values if nothing is set in the environment, then delete all existing
@@ -124,7 +140,9 @@ public class CassandraStorageSetup {
      * from logging statements.
      */
     public static void startCleanEmbedded() {
-        startCleanEmbedded(getPaths());
+        if (HOSTNAME == null) {
+            startCleanEmbedded(getPaths());
+        }
     }
 
     /*
@@ -144,7 +162,7 @@ public class CassandraStorageSetup {
 
     private static ModifiableConfiguration enableSSL(ModifiableConfiguration mc) {
         mc.set(AbstractCassandraStoreManager.SSL_ENABLED, true);
-        mc.set(STORAGE_HOSTS, new String[]{ "localhost" });
+        mc.set(STORAGE_HOSTS, new String[] {HOSTNAME != null ? HOSTNAME : "127.0.0.1"});
         mc.set(AbstractCassandraStoreManager.SSL_TRUSTSTORE_LOCATION,
                 Joiner.on(File.separator).join("target", "cassandra", "conf", "localhost-murmur-ssl", "test.truststore"));
         mc.set(AbstractCassandraStoreManager.SSL_TRUSTSTORE_PASSWORD, "cassandra");

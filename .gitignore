@@ -3,16 +3,9 @@ target/
 .idea/
 *.iml
 *.DS_Store
-/bin/
 /_bsp/
-/conf/
-/data/
-/db/
-/ext/
-/lib/
-/log/
 /output/
-/scripts/
+/docker/*.zip
 # When executing tests in alphabetical order, Maven generates temporary
 # files with names like this:
 #
@@ -46,7 +39,16 @@ janusgraph-*/pom.xml.versionsBackup
 /debian/
 /redhat/
 /pkgcommon/
+
 # Emacs file backups
 *~
 # Nano file backups
 *.save
+# Vim file backups
+*.swp
+
+# Coverity tools and analysis outputs
+coverity_tool.tar.gz
+cov-analysis-linux64/
+cov-int.tar.gz
+cov-int/

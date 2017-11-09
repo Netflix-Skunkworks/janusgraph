@@ -14,6 +14,7 @@
 
 package org.janusgraph.hadoop;
 
+import com.google.common.collect.ImmutableSet;
 import org.janusgraph.core.Cardinality;
 import org.janusgraph.core.JanusGraphVertex;
 import org.janusgraph.example.GraphOfTheGodsFactory;
@@ -70,12 +71,17 @@ public abstract class AbstractInputFormatIT extends JanusGraphBaseTest {
         Map<String, Object> propertiesOnVertex = graph.traversal().V().valueMap().next();
         List<?> valuesOnP = (List)propertiesOnVertex.values().iterator().next();
         assertEquals(numProps, valuesOnP.size());
+        for (int i = 0; i < numProps; i++) {
+            assertEquals(Integer.toString(i), valuesOnP.get(i).toString());
+        }
         Graph g = getGraph();
         GraphTraversalSource t = g.traversal(GraphTraversalSource.computer(SparkGraphComputer.class));
         assertEquals(numV, (long) t.V().count().next());
         propertiesOnVertex = t.V().valueMap().next();
-        valuesOnP = (List)propertiesOnVertex.values().iterator().next();
-        assertEquals(numProps, valuesOnP.size());
+        final Set<?> observedValuesOnP = ImmutableSet.copyOf((List)propertiesOnVertex.values().iterator().next());
+        assertEquals(numProps, observedValuesOnP.size());
+        // order may not be preserved in multi-value properties
+        assertEquals("Unexpected values", ImmutableSet.copyOf(valuesOnP), observedValuesOnP);
     }
 
     @Test
@@ -104,6 +110,20 @@ public abstract class AbstractInputFormatIT extends JanusGraphBaseTest {
         assertTrue(edgeIdIter.hasNext());
         Set<Object> edges = Sets.newHashSet(edgeIdIter);
         assertEquals(2, edges.size());
+    }
+
+    @Test
+    public void testGeoshapeGetValues() throws Exception {
+        GraphOfTheGodsFactory.load(graph, null, true);
+
+        // Read geoshape using the inputformat
+        Graph g = getGraph();
+        GraphTraversalSource t = g.traversal(GraphTraversalSource.computer(SparkGraphComputer.class));
+        Iterator<Object> geoIter = t.E().values("place");
+        assertNotNull(geoIter);
+        assertTrue(geoIter.hasNext());
+        Set<Object> geos = Sets.newHashSet(geoIter);
+        assertEquals(3, geos.size());
     }
 
     abstract protected Graph getGraph() throws IOException, ConfigurationException;

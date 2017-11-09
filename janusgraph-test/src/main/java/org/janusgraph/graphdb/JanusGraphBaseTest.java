@@ -75,16 +75,22 @@ public abstract class JanusGraphBaseTest {
     public abstract WriteConfiguration getConfiguration();
 
     public Configuration getConfig() {
-        return new BasicConfiguration(GraphDatabaseConfiguration.ROOT_NS,config.copy(), BasicConfiguration.Restriction.NONE);
+        return new BasicConfiguration(GraphDatabaseConfiguration.ROOT_NS, config.copy(), BasicConfiguration.Restriction.NONE);
     }
 
     public static void clearGraph(WriteConfiguration config) throws BackendException {
+        getBackend(config, true).clearStorage();
+    }
+
+    public static Backend getBackend(WriteConfiguration config, boolean initialize) throws BackendException {
         ModifiableConfiguration adjustedConfig = new ModifiableConfiguration(GraphDatabaseConfiguration.ROOT_NS,config.copy(), BasicConfiguration.Restriction.NONE);
         adjustedConfig.set(GraphDatabaseConfiguration.LOCK_LOCAL_MEDIATOR_GROUP, "tmp");
         adjustedConfig.set(GraphDatabaseConfiguration.UNIQUE_INSTANCE_ID, "inst");
         Backend backend = new Backend(adjustedConfig);
-        backend.initialize(adjustedConfig);
-        backend.clearStorage();
+        if (initialize) {
+            backend.initialize(adjustedConfig);
+        }
+        return backend;
     }
 
     @Before
@@ -92,10 +98,10 @@ public abstract class JanusGraphBaseTest {
         this.config = getConfiguration();
         TestGraphConfigs.applyOverrides(config);
         Preconditions.checkNotNull(config);
+        logManagers = new HashMap<String,LogManager>();
         clearGraph(config);
         readConfig = new BasicConfiguration(GraphDatabaseConfiguration.ROOT_NS, config, BasicConfiguration.Restriction.NONE);
         open(config);
-        logManagers = new HashMap<String,LogManager>();
     }
 
     public void open(WriteConfiguration config) {

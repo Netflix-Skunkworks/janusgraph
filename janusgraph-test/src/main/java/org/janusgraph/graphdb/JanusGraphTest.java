@@ -58,8 +58,9 @@ import org.janusgraph.core.schema.SchemaStatus;
 import org.janusgraph.core.schema.JanusGraphIndex;
 import org.janusgraph.core.schema.JanusGraphManagement;
 import org.janusgraph.core.schema.JanusGraphSchemaType;
-import org.janusgraph.core.util.ManagementUtil;
 import org.janusgraph.core.util.JanusGraphCleanup;
+import org.janusgraph.core.util.ManagementUtil;
+import org.janusgraph.diskstorage.Backend;
 import org.janusgraph.diskstorage.BackendException;
 import org.janusgraph.diskstorage.StaticBuffer;
 import org.janusgraph.diskstorage.configuration.ConfigElement;
@@ -168,7 +169,9 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
 
     private Logger log = LoggerFactory.getLogger(JanusGraphTest.class);
 
-    protected abstract boolean isLockingOptimistic();
+    final boolean isLockingOptimistic() {
+        return features.hasOptimisticLocking();
+    }
 
   /* ==================================================================================
                             INDEXING
@@ -179,6 +182,20 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
      */
     @Test
     public void testOpenClose() {
+    }
+
+    /**
+     * Ensure clearing storage actually removes underlying database.
+     * @throws Exception
+     */
+    @Test
+    public void testClearStorage() throws Exception {
+        tearDown();
+        config.set(ConfigElement.getPath(GraphDatabaseConfiguration.DROP_ON_CLEAR), true);
+        final Backend backend = getBackend(config, false);
+        assertTrue("graph should exist before clearing storage", backend.getStoreManager().exists());
+        clearGraph(config);
+        assertFalse("graph should not exist after clearing storage", backend.getStoreManager().exists());
     }
 
     /**
@@ -1032,7 +1049,9 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
 
         PropertyKey birthday = makeKey("birthday", Instant.class);
 
-        PropertyKey geo = makeKey("geo", Geoshape.class);
+        PropertyKey location = makeKey("location", Geoshape.class);
+
+        PropertyKey boundary = makeKey("boundary", Geoshape.class);
 
         PropertyKey precise = makeKey("precise", Double.class);
 
@@ -1059,7 +1078,8 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
         num = tx.getPropertyKey("num");
         barr = tx.getPropertyKey("barr");
         birthday = tx.getPropertyKey("birthday");
-        geo = tx.getPropertyKey("geo");
+        location = tx.getPropertyKey("location");
+        boundary = tx.getPropertyKey("boundary");
         precise = tx.getPropertyKey("precise");
         any = tx.getPropertyKey("any");
 
@@ -1068,6 +1088,7 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
         assertEquals(Object.class, any.dataType());
 
         final Instant c = Instant.ofEpochSecond(1429225756);
+        final Geoshape point = Geoshape.point(10.0, 10.0);
         final Geoshape shape = Geoshape.box(10.0, 10.0, 20.0, 20.0);
 
         JanusGraphVertex v = tx.addVertex();
@@ -1075,7 +1096,8 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
         v.property(VertexProperty.Cardinality.single, n(birthday), c);
         v.property(VertexProperty.Cardinality.single, n(num), new SpecialInt(10));
         v.property(VertexProperty.Cardinality.single, n(barr), new byte[]{1, 2, 3, 4});
-        v.property(VertexProperty.Cardinality.single, n(geo), shape);
+        v.property(VertexProperty.Cardinality.single, n(location), point);
+        v.property(VertexProperty.Cardinality.single, n(boundary), shape);
         v.property(VertexProperty.Cardinality.single, n(precise), 10.12345);
         v.property(n(any), "Hello");
         v.property(n(any), 10l);
@@ -1087,7 +1109,8 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
         assertEquals(10, v.<SpecialInt>value("num").getValue());
         assertEquals(c, v.value("birthday"));
         assertEquals(4, v.<byte[]>value("barr").length);
-        assertEquals(shape, v.<Geoshape>value("geo"));
+        assertEquals(point, v.<Geoshape>value("location"));
+        assertEquals(shape, v.<Geoshape>value("boundary"));
         assertEquals(10.12345, v.<Double>value("precise").doubleValue(), 0.000001);
         assertCount(3, v.properties("any"));
         for (Object prop : v.query().labels("any").properties()) {
@@ -1108,7 +1131,8 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
         assertEquals(10, v.<SpecialInt>value("num").getValue());
         assertEquals(c, v.value("birthday"));
         assertEquals(4, v.<byte[]>value("barr").length);
-        assertEquals(shape, v.<Geoshape>value("geo"));
+        assertEquals(point, v.<Geoshape>value("location"));
+        assertEquals(shape, v.<Geoshape>value("boundary"));
         assertEquals(10.12345, v.<Double>value("precise").doubleValue(), 0.000001);
         assertCount(3, v.properties("any"));
         for (Object prop : v.query().labels("any").properties()) {
@@ -1295,6 +1319,17 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
     }
 
     @Test
+    public void testGotGLoadWithoutIndexBackendException() {
+        try {
+            GraphOfTheGodsFactory.load(graph);
+            fail("Expected an exception to be thrown indicating improper index backend configuration");
+        } catch (IllegalStateException ex) {
+            assertTrue("An exception asking the user to use loadWithoutMixedIndex was expected",
+                    ex.getMessage().contains("loadWithoutMixedIndex"));
+        }
+    }
+
+    @Test
     public void testGotGIndexRemoval() throws InterruptedException, ExecutionException {
         clopen(option(LOG_SEND_DELAY, MANAGEMENT_LOG), Duration.ZERO,
                 option(KCVSLog.LOG_READ_LAG_TIME, MANAGEMENT_LOG), Duration.ofMillis(50),
@@ -1337,6 +1372,94 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
 
         // Should have deleted at least one record
         assertNotEquals(0, gmetrics.get().getCustom(IndexRemoveJob.DELETED_RECORDS_COUNT));
+    }
+
+    @Test
+    public void testVertexCentricEdgeIndexOnSimpleMultiplicityShouldWork() {
+        clopen(option(LOG_SEND_DELAY, MANAGEMENT_LOG), Duration.ofMillis(0),
+                option(KCVSLog.LOG_READ_LAG_TIME, MANAGEMENT_LOG), Duration.ofMillis(50),
+                option(LOG_READ_INTERVAL, MANAGEMENT_LOG), Duration.ofMillis(250)
+        );
+        PropertyKey time = mgmt.makePropertyKey("time").dataType(Integer.class).cardinality(Cardinality.SINGLE).make();
+        EdgeLabel friend = mgmt.makeEdgeLabel("friend").multiplicity(Multiplicity.SIMPLE).make();
+        mgmt.buildEdgeIndex(friend, "byTime", Direction.OUT, decr, time);
+        finishSchema();
+        assertEquals(SchemaStatus.ENABLED, mgmt.getRelationIndex(mgmt.getRelationType("friend"), "byTime").getIndexStatus());
+        JanusGraphVertex v = tx.addVertex();
+        v = getV(tx, v);
+        for (int i = 200; i < 210; i++) {
+            JanusGraphVertex o = tx.addVertex();
+            v.addEdge("friend", o, "time", i);
+        }
+        evaluateQuery(v.query().labels("friend").direction(OUT).interval("time", 199, 210).orderBy("time", decr),
+            EDGE, 10, 1, new boolean[]{true, true}, tx.getPropertyKey("time"), Order.DESC);
+        tx.commit();
+        finishSchema();
+    }
+
+    @Test
+    public void testVertexCentricPropertyIndexOnSetCardinalityShouldWork() {
+        clopen(option(LOG_SEND_DELAY, MANAGEMENT_LOG), Duration.ofMillis(0),
+                option(KCVSLog.LOG_READ_LAG_TIME, MANAGEMENT_LOG), Duration.ofMillis(50),
+                option(LOG_READ_INTERVAL, MANAGEMENT_LOG), Duration.ofMillis(250)
+        );
+        PropertyKey time = mgmt.makePropertyKey("time").dataType(Integer.class).cardinality(Cardinality.SINGLE).make();
+        PropertyKey name = mgmt.makePropertyKey("name").dataType(String.class).cardinality(Cardinality.SET).make();
+        mgmt.buildPropertyIndex(name, "byTime", decr, time);
+        finishSchema();
+        assertEquals(SchemaStatus.ENABLED, mgmt.getRelationIndex(mgmt.getRelationType("name"), "byTime").getIndexStatus());
+        JanusGraphVertex v = tx.addVertex();
+        v = getV(tx, v);
+        for (int i = 200; i < 210; i++) {
+            v.property("name", String.valueOf(i), "time", i);
+        }
+        evaluateQuery(v.query().keys("name").interval("time", 199, 210).orderBy("time", decr),
+            PROPERTY, 10, 1, new boolean[]{true, true}, tx.getPropertyKey("time"), Order.DESC);
+        tx.commit();
+        finishSchema();
+    }
+
+    @Test
+    public void testVertexCentricIndexOrderingOnEdgePropertyWithCardinalityList() throws InterruptedException, ExecutionException {
+        clopen(option(LOG_SEND_DELAY, MANAGEMENT_LOG), Duration.ofMillis(0),
+                option(KCVSLog.LOG_READ_LAG_TIME, MANAGEMENT_LOG), Duration.ofMillis(50),
+                option(LOG_READ_INTERVAL, MANAGEMENT_LOG), Duration.ofMillis(250)
+        );
+        PropertyKey time = mgmt.makePropertyKey("time").dataType(Integer.class).cardinality(Cardinality.LIST).make();
+        EdgeLabel friend = mgmt.makeEdgeLabel("friend").multiplicity(Multiplicity.MULTI).make();
+        mgmt.buildEdgeIndex(friend, "byTime", Direction.OUT, decr, time);
+        finishSchema();
+        JanusGraphVertex v = tx.addVertex();
+        for (int i = 200; i < 210; i++) {
+            JanusGraphVertex o = tx.addVertex();
+            v.addEdge("friend", o, "time", i);
+        }
+        assertEquals(SchemaStatus.ENABLED, mgmt.getRelationIndex(mgmt.getRelationType("friend"), "byTime").getIndexStatus());
+        evaluateQuery(v.query().labels("friend").direction(OUT).interval("time", 201, 205).orderBy("time", decr),
+            EDGE, 4, 1, new boolean[]{true, true}, tx.getPropertyKey("time"), Order.DESC);
+        tx.commit();
+        finishSchema();
+    }
+
+    @Test
+    public void testVertexCentricIndexOrderingOnMetaPropertyWithCardinalityList() throws InterruptedException, ExecutionException {
+        clopen(option(LOG_SEND_DELAY, MANAGEMENT_LOG), Duration.ofMillis(0),
+                option(KCVSLog.LOG_READ_LAG_TIME, MANAGEMENT_LOG), Duration.ofMillis(50),
+                option(LOG_READ_INTERVAL, MANAGEMENT_LOG), Duration.ofMillis(250)
+        );
+        PropertyKey time = mgmt.makePropertyKey("time").dataType(Integer.class).cardinality(Cardinality.LIST).make();
+        PropertyKey sensor = mgmt.makePropertyKey("sensor").dataType(Integer.class).cardinality(Cardinality.LIST).make();
+        mgmt.buildPropertyIndex(sensor, "byTime", decr, time);
+        finishSchema();
+        JanusGraphVertex v = tx.addVertex();
+        for (int i = 200; i < 210; i++) {
+            v.property("sensor", i, "time", i);
+        }
+        assertEquals(SchemaStatus.ENABLED, mgmt.getRelationIndex(mgmt.getRelationType("sensor"), "byTime").getIndexStatus());
+        evaluateQuery(v.query().keys("sensor").interval("time", 201, 205).orderBy("time", decr),
+            PROPERTY, 4, 1, new boolean[]{true, true}, tx.getPropertyKey("time"), Order.DESC);
+        tx.commit();
+        finishSchema();
     }
 
     @Test
@@ -1591,7 +1714,6 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
         tx.addVertex("name", "v3");
         tx.commit();
 
-        Thread.sleep(2000); //Wait for the index to register in graph2
         finishSchema();
         try {
             mgmt.updateIndex(mgmt.getGraphIndex("theIndex"), SchemaAction.ENABLE_INDEX);
@@ -1618,7 +1740,6 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
         evaluateQuery(tx.query().has("name", "v3"), ElementCategory.VERTEX, 1, new boolean[]{true, true}, "theIndex");
         evaluateQuery(tx.query().has("name", "v4"), ElementCategory.VERTEX, 1, new boolean[]{true, true}, "theIndex");
 
-        Thread.sleep(2000);
         tx2 = graph2.newTransaction();
         evaluateQuery(tx2.query().has("name", "v1"), ElementCategory.VERTEX, 0, new boolean[]{true, true}, "theIndex");
         evaluateQuery(tx2.query().has("name", "v2"), ElementCategory.VERTEX, 1, new boolean[]{true, true}, "theIndex");
@@ -2633,7 +2754,9 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
         evaluateQuery(v.query().labels("friend").direction(OUT).interval("time", 3, 33).has("weight", 0.5), EDGE, 3, 1, new boolean[]{true, true});
         evaluateQuery(v.query().labels("friend").direction(OUT).interval("time", 3, 33).has("weight", Contain.IN, ImmutableList.of(0.5)), EDGE, 3, 1, new boolean[]{true, true});
         evaluateQuery(v.query().labels("friend").direction(OUT).has("weight", Contain.IN, ImmutableList.of(0.5, 1.5, 2.5)).interval("time", 3, 33), EDGE, 7, 3, new boolean[]{true, true});
-        evaluateQuery(v.query().labels("friend").direction(OUT).has("weight", Contain.IN, ImmutableList.of(0.5, 1.5)), EDGE, 1667, 2, new boolean[]{true, true});
+        int friendsWhoHaveOutEdgesWithWeightBetweenPointFiveAndOnePointFive = (int) Math.round(Math.ceil(1667 * noVertices / 10000.0));
+        evaluateQuery(v.query().labels("friend").direction(OUT).has("weight", Contain.IN, ImmutableList.of(0.5, 1.5)), EDGE,
+            friendsWhoHaveOutEdgesWithWeightBetweenPointFiveAndOnePointFive, 2, new boolean[]{true, true});
         assertEquals(3, u.query().labels("friendDesc").direction(OUT).interval("time", 3, 33).has("weight", 0.5).edgeCount());
         assertEquals(1, v.query().labels("friend").direction(OUT).has("weight", 0.5).interval("time", 4, 10).edgeCount());
         assertEquals(1, u.query().labels("friendDesc").direction(OUT).has("weight", 0.5).interval("time", 4, 10).edgeCount());
@@ -2746,7 +2869,8 @@ public abstract class JanusGraphTest extends JanusGraphBaseTest {
         evaluateQuery(v.query().labels("friend").direction(OUT).interval("time", 3, 33).has("weight", 0.5), EDGE, 3, 1, new boolean[]{true, true});
         evaluateQuery(v.query().labels("friend").direction(OUT).interval("time", 3, 33).has("weight", Contain.IN, ImmutableList.of(0.5)), EDGE, 3, 1, new boolean[]{true, true});
         evaluateQuery(v.query().labels("friend").direction(OUT).has("weight", Contain.IN, ImmutableList.of(0.5, 1.5, 2.5)).interval("time", 3, 33), EDGE, 7, 3, new boolean[]{true, true});
-        evaluateQuery(v.query().labels("friend").direction(OUT).has("weight", Contain.IN, ImmutableList.of(0.5, 1.5)), EDGE, 1667, 2, new boolean[]{true, true});
+        evaluateQuery(v.query().labels("friend").direction(OUT).has("weight", Contain.IN, ImmutableList.of(0.5, 1.5)), EDGE,
+            friendsWhoHaveOutEdgesWithWeightBetweenPointFiveAndOnePointFive, 2, new boolean[]{true, true});
         assertEquals(3, u.query().labels("friendDesc").direction(OUT).interval("time", 3, 33).has("weight", 0.5).edgeCount());
         assertEquals(1, v.query().labels("friend").direction(OUT).has("weight", 0.5).interval("time", 4, 10).edgeCount());
         assertEquals(1, u.query().labels("friendDesc").direction(OUT).has("weight", 0.5).interval("time", 4, 10).edgeCount());
